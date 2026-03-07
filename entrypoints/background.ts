@@ -43,6 +43,7 @@ type ToggleHardMessage = { type: "TOGGLE_HARD"; wordId: string };
 type AddContextMessage = { type: "ADD_CONTEXT"; wordId: string; sentence: string; url: string };
 type DeleteWordMessage = { type: "DELETE_WORD"; wordId: string };
 type GetSubtitleUrlMessage = { type: "GET_SUBTITLE_URL"; lang: string };
+type FetchSubtitleContentMessage = { type: "FETCH_SUBTITLE_CONTENT"; url: string };
 
 type AppMessage =
   | TranslateMessage
@@ -60,7 +61,8 @@ type AppMessage =
   | GetStatsMessage
   | GetAchievementsMessage
   | DeleteWordMessage
-  | GetSubtitleUrlMessage;
+  | GetSubtitleUrlMessage
+  | FetchSubtitleContentMessage;
 
 function isValidMessage(msg: unknown): msg is AppMessage {
   if (!msg || typeof msg !== "object" || !("type" in msg)) return false;
@@ -98,6 +100,8 @@ function isValidMessage(msg: unknown): msg is AppMessage {
       return typeof m.wordId === "string";
     case "GET_SUBTITLE_URL":
       return typeof m.lang === "string";
+    case "FETCH_SUBTITLE_CONTENT":
+      return typeof m.url === "string";
     default:
       return false;
   }
@@ -350,6 +354,24 @@ export default defineBackground(() => {
         console.log("[Vocabify] executeScript failed:", e);
         sendResponse({ success: false, error: String(e) });
       });
+      return true;
+    }
+
+    // Handle FETCH_SUBTITLE_CONTENT — fetch from background context (has proper cookies)
+    if (message.type === "FETCH_SUBTITLE_CONTENT") {
+      fetch(message.url)
+        .then(async (response) => {
+          if (!response.ok) {
+            sendResponse({ success: false, error: `HTTP ${response.status}` });
+            return;
+          }
+          const content = await response.text();
+          sendResponse({ success: true, content });
+        })
+        .catch((e) => {
+          console.log("[Vocabify] Background subtitle fetch failed:", e);
+          sendResponse({ success: false, error: String(e) });
+        });
       return true;
     }
 

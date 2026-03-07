@@ -83,8 +83,6 @@ function parseSubtitleEvents(events: any[]): SubtitleCue[] {
 }
 
 // Get subtitle URL via background script's chrome.scripting.executeScript
-// (Content scripts can't access window.ytInitialPlayerResponse due to isolated worlds,
-//  and inline <script> injection is blocked by YouTube's CSP)
 async function getSubtitleUrlFromPageContext(lang: string): Promise<string | null> {
   try {
     const res = await chrome.runtime.sendMessage({ type: "GET_SUBTITLE_URL", lang });
@@ -93,6 +91,21 @@ async function getSubtitleUrlFromPageContext(lang: string): Promise<string | nul
     }
   } catch (e) {
     console.log("[Vocabify] GET_SUBTITLE_URL message failed:", e);
+  }
+  return null;
+}
+
+// Fetch subtitle content via background script
+// (Content script fetch returns empty body — YouTube checks origin/cookies)
+async function fetchSubtitleContent(url: string): Promise<string | null> {
+  try {
+    const res = await chrome.runtime.sendMessage({ type: "FETCH_SUBTITLE_CONTENT", url });
+    if (res?.success && res.content) {
+      return res.content;
+    }
+    console.log("[Vocabify] Background subtitle fetch failed:", res?.error);
+  } catch (e) {
+    console.log("[Vocabify] FETCH_SUBTITLE_CONTENT message failed:", e);
   }
   return null;
 }
@@ -114,38 +127,35 @@ export async function fetchSubtitles(videoId: string, lang: string = "en"): Prom
       // Ensure fmt=json3 is appended properly
       const url = new URL(subtitleUrl);
       url.searchParams.set("fmt", "json3");
+      const fetchUrl = url.toString();
       
-      console.log("[Vocabify] Fetching subtitles from:", url.toString().substring(0, 120) + "...");
-      const response = await fetch(url.toString());
-      console.log("[Vocabify] Subtitle response status:", response.status, response.statusText);
+      console.log("[Vocabify] Fetching subtitles via background from:", fetchUrl.substring(0, 120) + "...");
       
-      if (!response.ok) {
-        console.log("[Vocabify] Subtitle response not OK:", response.status);
+      // Fetch via background script (content script fetch returns empty body
+      // because YouTube checks origin/cookies which extension context lacks)
+      const text = await fetchSubtitleContent(fetchUrl);
+      
+      if (!text || text.length === 0) {
+        console.log("[Vocabify] Empty subtitle response from background");
       } else {
-        const text = await response.text();
-        console.log("[Vocabify] Subtitle response length:", text.length, "first 200 chars:", text.substring(0, 200));
+        console.log("[Vocabify] Subtitle response length:", text.length);
         
-        if (text.length === 0) {
-          console.log("[Vocabify] Empty subtitle response");
-        } else {
-          try {
-            const data = JSON.parse(text);
-            if (data.events) {
-              const cues = parseSubtitleEvents(data.events);
-              if (cues.length > 0) {
-                console.log(`[Vocabify] Loaded ${cues.length} subtitle cues`);
-                return cues;
-              }
+        try {
+          const data = JSON.parse(text);
+          if (data.events) {
+            const cues = parseSubtitleEvents(data.events);
+            if (cues.length > 0) {
+              console.log(`[Vocabify] Loaded ${cues.length} subtitle cues`);
+              return cues;
             }
-          } catch (parseErr) {
-            console.log("[Vocabify] JSON parse failed, response might be XML. Trying XML parse...");
-            // YouTube sometimes returns XML format even with fmt=json3
-            if (text.includes("<transcript>") || text.includes("<text")) {
-              const cues = parseXmlSubtitles(text);
-              if (cues.length > 0) {
-                console.log(`[Vocabify] Loaded ${cues.length} subtitle cues from XML`);
-                return cues;
-              }
+          }
+        } catch {
+          console.log("[Vocabify] JSON parse failed, trying XML...");
+          if (text.includes("<transcript>") || text.includes("<text")) {
+            const cues = parseXmlSubtitles(text);
+            if (cues.length > 0) {
+              console.log(`[Vocabify] Loaded ${cues.length} subtitle cues from XML`);
+              return cues;
             }
           }
         }
