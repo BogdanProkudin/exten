@@ -55,15 +55,101 @@ function parseSubtitleEvents(events: any[]): SubtitleCue[] {
     .filter((cue) => cue.text.length > 0);
 }
 
+// Inject a script into the page context to extract subtitle URLs
+// (Content scripts can't access window.ytInitialPlayerResponse due to isolated worlds)
+function getSubtitleUrlFromPageContext(lang: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const callbackId = "vocabify_subs_" + Date.now();
+    
+    // Listen for the response from the injected script
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.callbackId === callbackId) {
+        document.removeEventListener("vocabify-subtitle-response", handler);
+        resolve(detail.url || null);
+      }
+    };
+    document.addEventListener("vocabify-subtitle-response", handler);
+
+    // Inject script into page context
+    const script = document.createElement("script");
+    script.textContent = `
+      (function() {
+        var lang = ${JSON.stringify(lang)};
+        var callbackId = ${JSON.stringify(callbackId)};
+        var url = null;
+        
+        try {
+          // Method 1: window.ytInitialPlayerResponse (most reliable)
+          var response = window.ytInitialPlayerResponse;
+          
+          // Method 2: ytplayer.config  
+          if (!response) {
+            var ytplayer = window.ytplayer;
+            response = ytplayer && ytplayer.config && ytplayer.config.args && ytplayer.config.args.raw_player_response;
+          }
+          
+          // Method 3: document.ytInitialPlayerResponse (some YT versions)
+          if (!response) {
+            response = document.ytInitialPlayerResponse;
+          }
+
+          if (response && response.captions) {
+            var tracks = response.captions.playerCaptionsTracklistRenderer && 
+                         response.captions.playerCaptionsTracklistRenderer.captionTracks;
+            if (tracks && tracks.length > 0) {
+              // Find best matching track
+              var manual = null, auto = null, anyEn = null;
+              for (var i = 0; i < tracks.length; i++) {
+                var t = tracks[i];
+                var lc = t.languageCode || "";
+                var isMatch = lc === lang || lc.indexOf(lang + "-") === 0;
+                var isEn = lc.indexOf("en") === 0;
+                var isManual = t.kind !== "asr";
+                
+                if (isMatch && isManual && !manual) manual = t;
+                else if (isMatch && !auto) auto = t;
+                else if (isEn && isManual && !anyEn) anyEn = t;
+                else if (isEn && !anyEn) anyEn = t;
+              }
+              var best = manual || auto || anyEn;
+              if (best && best.baseUrl) url = best.baseUrl;
+            }
+          }
+        } catch(e) {
+          console.log("[Vocabify] Page context subtitle extraction error:", e);
+        }
+        
+        document.dispatchEvent(new CustomEvent("vocabify-subtitle-response", {
+          detail: { callbackId: callbackId, url: url }
+        }));
+      })();
+    `;
+    document.documentElement.appendChild(script);
+    script.remove();
+
+    // Timeout after 2 seconds
+    setTimeout(() => {
+      document.removeEventListener("vocabify-subtitle-response", handler);
+      resolve(null);
+    }, 2000);
+  });
+}
+
 // Fetch subtitles for a YouTube video
 export async function fetchSubtitles(videoId: string, lang: string = "en"): Promise<SubtitleCue[]> {
-  // Primary method: get signed subtitle URL from page's player config
-  // (The legacy unsigned timedtext API no longer works without auth params)
-  const subtitleUrl = getSubtitleUrlFromPage(lang);
+  // Method 1: Extract URL from page's JavaScript context (most reliable)
+  let subtitleUrl = await getSubtitleUrlFromPageContext(lang);
+  console.log(`[Vocabify] Page context subtitle URL (lang=${lang}):`, subtitleUrl ? "found" : "not found");
+
+  // Method 2: Fall back to parsing script tags (initial page load only)
+  if (!subtitleUrl) {
+    subtitleUrl = getSubtitleUrlFromPage(lang);
+    console.log(`[Vocabify] Script tag subtitle URL (lang=${lang}):`, subtitleUrl ? "found" : "not found");
+  }
   
   if (subtitleUrl) {
     try {
-      // Append json3 format — the baseUrl already contains all auth params
       const separator = subtitleUrl.includes("?") ? "&" : "?";
       const response = await fetch(subtitleUrl + separator + "fmt=json3");
       if (response.ok) {
@@ -71,7 +157,7 @@ export async function fetchSubtitles(videoId: string, lang: string = "en"): Prom
         if (data.events) {
           const cues = parseSubtitleEvents(data.events);
           if (cues.length > 0) {
-            console.log(`[Vocabify] Fetched ${cues.length} cues from page config (lang=${lang})`);
+            console.log(`[Vocabify] Loaded ${cues.length} subtitle cues`);
             return cues;
           }
         }
@@ -79,8 +165,6 @@ export async function fetchSubtitles(videoId: string, lang: string = "en"): Prom
     } catch (e) {
       console.log("[Vocabify] Subtitle fetch failed:", e);
     }
-  } else {
-    console.log(`[Vocabify] No subtitle URL found in page config for lang=${lang}`);
   }
 
   return [];

@@ -25,6 +25,7 @@ export default defineConfig({
       "https://translate.googleapis.com/*",
       "https://api.datamuse.com/*",
       "https://api.dictionaryapi.dev/*",
+      "https://www.youtube.com/*",
     ],
   },
 });
