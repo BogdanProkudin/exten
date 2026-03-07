@@ -437,3 +437,69 @@ export const backfillLemmas = mutation({
     return { updated };
   },
 });
+
+// Export all words for backup
+export const getAllForExport = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, { deviceId }) => {
+    const words = await ctx.db
+      .query("words")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+    
+    return words.map((w) => ({
+      word: w.word,
+      translation: w.translation,
+      status: w.status,
+      reviewCount: w.reviewCount ?? 0,
+      contexts: w.contexts ?? [],
+      createdAt: w.createdAt ?? w._creationTime,
+    }));
+  },
+});
+
+// Import a single word (used for batch import)
+export const importWord = mutation({
+  args: {
+    deviceId: v.string(),
+    word: v.string(),
+    translation: v.string(),
+    status: v.optional(v.union(v.literal("new"), v.literal("learning"), v.literal("known"))),
+  },
+  handler: async (ctx, { deviceId, word, translation, status }) => {
+    const lemma = lemmatize(word);
+    
+    // Check if word already exists
+    const existing = await ctx.db
+      .query("words")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .filter((q) => q.eq(q.field("lemma"), lemma))
+      .first();
+    
+    if (existing) {
+      return { imported: false, reason: "exists" };
+    }
+    
+    // Insert new word
+    await ctx.db.insert("words", {
+      deviceId,
+      word: word.toLowerCase(),
+      lemma,
+      translation,
+      example: "",
+      status: status ?? "new",
+      sourceUrl: "",
+      createdAt: Date.now(),
+      reviewCount: 0,
+      lastReviewed: undefined,
+      consecutiveCorrect: 0,
+      intervalDays: 1,
+      difficulty: 1,
+      forgotCount: 0,
+      isHard: false,
+      contexts: [],
+    });
+    
+    return { imported: true };
+  },
+});
