@@ -101,7 +101,8 @@ function getSubtitleUrlFromPage(lang: string): string | null {
     for (const script of scripts) {
       const content = script.textContent || "";
       if (content.includes("ytInitialPlayerResponse")) {
-        const match = content.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/);
+        // Use greedy match — the non-greedy `.+?` can stop too early on nested objects
+        const match = content.match(/ytInitialPlayerResponse\s*=\s*(\{.+\})\s*;/);
         if (match) {
           const data = JSON.parse(match[1]);
           const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
@@ -202,12 +203,24 @@ export function createSubtitleOverlay(
 export function observeYouTubeNavigation(callback: (videoId: string | null) => void): () => void {
   let lastVideoId = getVideoId();
   
-  const observer = new MutationObserver(() => {
+  // YouTube uses History API pushState for SPA navigation (not caught by popstate alone)
+  const handleNavigation = () => {
     const currentVideoId = getVideoId();
     if (currentVideoId !== lastVideoId) {
       lastVideoId = currentVideoId;
       callback(currentVideoId);
     }
+  };
+
+  // Listen for YouTube's custom navigation event (most reliable)
+  const handleYtNavigate = () => handleNavigation();
+  document.addEventListener("yt-navigate-finish", handleYtNavigate);
+
+  // MutationObserver as fallback — debounce to avoid excessive firing
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  const observer = new MutationObserver(() => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(handleNavigation, 200);
   });
   
   observer.observe(document.body, {
@@ -216,18 +229,12 @@ export function observeYouTubeNavigation(callback: (videoId: string | null) => v
   });
   
   // Also listen to popstate for back/forward navigation
-  const handlePopState = () => {
-    const currentVideoId = getVideoId();
-    if (currentVideoId !== lastVideoId) {
-      lastVideoId = currentVideoId;
-      callback(currentVideoId);
-    }
-  };
-  
-  window.addEventListener("popstate", handlePopState);
+  window.addEventListener("popstate", handleNavigation);
   
   return () => {
+    document.removeEventListener("yt-navigate-finish", handleYtNavigate);
     observer.disconnect();
-    window.removeEventListener("popstate", handlePopState);
+    clearTimeout(debounceTimer);
+    window.removeEventListener("popstate", handleNavigation);
   };
 }

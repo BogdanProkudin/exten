@@ -9,6 +9,7 @@ import {
   observeYouTubeNavigation,
   type SubtitleCue,
 } from "../../src/lib/youtube";
+import { lemmatize } from "../../src/lib/lemmatize";
 
 interface YouTubeOverlayProps {
   onWordClick: (word: string, position: { x: number; y: number }) => void;
@@ -55,62 +56,97 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
   useEffect(() => {
     if (!videoId || !enabled) return;
 
+    let cancelled = false;
     setLoading(true);
     setError(null);
 
-    fetchSubtitles(videoId, "en")
-      .then((subs) => {
+    (async () => {
+      try {
+        // Try manual English subtitles first
+        let subs = await fetchSubtitles(videoId, "en");
+        if (cancelled) return;
+
+        if (subs.length === 0) {
+          // Try auto-generated English
+          subs = await fetchSubtitles(videoId, "en-US");
+          if (cancelled) return;
+        }
+
+        if (subs.length === 0) {
+          // Try any English variant
+          subs = await fetchSubtitles(videoId, "en-GB");
+          if (cancelled) return;
+        }
+
         if (subs.length > 0) {
           setSubtitles(subs);
           console.log(`[Vocabify] Loaded ${subs.length} subtitle cues`);
         } else {
-          // Try auto-generated
-          fetchSubtitles(videoId, "en-US").then((autoSubs) => {
-            if (autoSubs.length > 0) {
-              setSubtitles(autoSubs);
-            } else {
-              setError("No English subtitles available");
-            }
-          });
+          setError("No English subtitles available");
         }
-      })
-      .catch(() => setError("Failed to load subtitles"))
-      .finally(() => setLoading(false));
+      } catch {
+        if (!cancelled) setError("Failed to load subtitles");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
   }, [videoId, enabled]);
 
   // Track video time and update current cue
   useEffect(() => {
     if (subtitles.length === 0 || !enabled) return;
 
-    const video = getVideoElement();
-    if (!video) return;
-    videoRef.current = video;
+    // Video element may not exist immediately after SPA navigation — retry
+    let video: HTMLVideoElement | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+
+    const attach = () => {
+      video = getVideoElement();
+      if (!video) {
+        if (attempts++ < 10) {
+          retryTimer = setTimeout(attach, 500);
+        }
+        return;
+      }
+      videoRef.current = video;
+      video.addEventListener("timeupdate", updateCue);
+      video.addEventListener("seeking", updateCue);
+    };
 
     const updateCue = () => {
+      if (!video) return;
       const cue = getCurrentCue(subtitles, video.currentTime);
       setCurrentCue(cue);
     };
 
-    video.addEventListener("timeupdate", updateCue);
-    video.addEventListener("seeking", updateCue);
+    attach();
 
     return () => {
-      video.removeEventListener("timeupdate", updateCue);
-      video.removeEventListener("seeking", updateCue);
+      clearTimeout(retryTimer);
+      if (video) {
+        video.removeEventListener("timeupdate", updateCue);
+        video.removeEventListener("seeking", updateCue);
+      }
     };
   }, [subtitles, enabled]);
 
   // Position the overlay relative to the video player
+  const mountedRef = useRef(false);
   useEffect(() => {
     if (!containerRef.current) return;
 
     const video = getVideoElement();
     if (!video) return;
 
-    const player = video.closest(".html5-video-player");
+    const player = video.closest(".html5-video-player") as HTMLElement | null;
     if (!player) return;
 
-    // Insert our overlay into the player
+    // Only move into player DOM once (not on every cue change)
+    if (mountedRef.current) return;
+
     const existingOverlay = player.querySelector(".vocabify-yt-container");
     if (existingOverlay) {
       existingOverlay.remove();
@@ -118,6 +154,11 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
 
     containerRef.current.className = "vocabify-yt-container";
     player.appendChild(containerRef.current);
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    };
   }, [currentCue]);
 
   const handleWordClick = useCallback(
@@ -193,7 +234,7 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
         }}
       >
         {words.map((word, i) => {
-          const isKnown = vocabLemmas?.has(word.toLowerCase());
+          const isKnown = vocabLemmas?.has(lemmatize(word)) || vocabLemmas?.has(word.toLowerCase());
           return (
             <span key={i}>
               <span
