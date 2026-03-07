@@ -39,86 +39,154 @@ export function getSubtitleContainer(): HTMLElement | null {
   return document.querySelector(".ytp-caption-segment");
 }
 
-// Parse subtitle track from YouTube's internal player
+// Parse subtitle events into cues
+function parseSubtitleEvents(events: any[]): SubtitleCue[] {
+  return events
+    .filter((event: any) => event.segs)
+    .map((event: any) => ({
+      start: event.tStartMs / 1000,
+      end: (event.tStartMs + (event.dDurationMs || 3000)) / 1000,
+      text: event.segs
+        .map((seg: any) => seg.utf8)
+        .join("")
+        .replace(/\n/g, " ")
+        .trim(),
+    }))
+    .filter((cue) => cue.text.length > 0);
+}
+
+// Fetch subtitles for a YouTube video
 export async function fetchSubtitles(videoId: string, lang: string = "en"): Promise<SubtitleCue[]> {
-  // Try to get subtitle URL from page config first
+  // Primary method: get signed subtitle URL from page's player config
+  // (The legacy unsigned timedtext API no longer works without auth params)
   const subtitleUrl = getSubtitleUrlFromPage(lang);
   
   if (subtitleUrl) {
     try {
-      const response = await fetch(subtitleUrl + "&fmt=json3");
+      // Append json3 format — the baseUrl already contains all auth params
+      const separator = subtitleUrl.includes("?") ? "&" : "?";
+      const response = await fetch(subtitleUrl + separator + "fmt=json3");
       if (response.ok) {
         const data = await response.json();
         if (data.events) {
-          return data.events
-            .filter((event: any) => event.segs)
-            .map((event: any) => ({
-              start: event.tStartMs / 1000,
-              end: (event.tStartMs + (event.dDurationMs || 3000)) / 1000,
-              text: event.segs.map((seg: any) => seg.utf8).join(""),
-            }));
+          const cues = parseSubtitleEvents(data.events);
+          if (cues.length > 0) {
+            console.log(`[Vocabify] Fetched ${cues.length} cues from page config (lang=${lang})`);
+            return cues;
+          }
         }
       }
     } catch (e) {
-      console.log("[Vocabify] Subtitle URL fetch failed:", e);
+      console.log("[Vocabify] Subtitle fetch failed:", e);
+    }
+  } else {
+    console.log(`[Vocabify] No subtitle URL found in page config for lang=${lang}`);
+  }
+
+  return [];
+}
+
+// Extract balanced JSON object starting at a given index
+function extractJsonObject(text: string, startIdx: number): string | null {
+  const braceStart = text.indexOf("{", startIdx);
+  if (braceStart === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = braceStart; i < text.length; i++) {
+    const c = text[i];
+    if (escapeNext) { escapeNext = false; continue; }
+    if (c === "\\" && inString) { escapeNext = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) {
+        return text.slice(braceStart, i + 1);
+      }
     }
   }
-  
-  // Fallback: Try legacy timedtext API
-  try {
-    const response = await fetch(
-      `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}&fmt=json3`
-    );
-    
-    if (!response.ok) {
-      console.log("[Vocabify] No subtitles found for language:", lang);
-      return [];
-    }
-    
-    const data = await response.json();
-    
-    if (!data.events) {
-      return [];
-    }
-    
-    return data.events
-      .filter((event: any) => event.segs)
-      .map((event: any) => ({
-        start: event.tStartMs / 1000,
-        end: (event.tStartMs + (event.dDurationMs || 3000)) / 1000,
-        text: event.segs.map((seg: any) => seg.utf8).join(""),
-      }));
-  } catch (e) {
-    console.error("[Vocabify] Failed to fetch subtitles:", e);
-    return [];
-  }
+  return null;
 }
 
 // Get subtitle URL from YouTube's player config
 function getSubtitleUrlFromPage(lang: string): string | null {
+  // Helper to find a matching track from caption tracks
+  function findTrack(captionTracks: any[]): any | null {
+    // Prefer manual over auto-generated
+    const manualTrack = captionTracks.find((t: any) =>
+      (t.languageCode === lang || t.languageCode.startsWith(lang + "-")) && t.kind !== "asr"
+    );
+    const autoTrack = captionTracks.find((t: any) =>
+      (t.languageCode === lang || t.languageCode.startsWith(lang + "-"))
+    );
+    const anyEnglish = captionTracks.find((t: any) =>
+      t.languageCode.startsWith("en") && t.kind !== "asr"
+    );
+    const anyEnglishAuto = captionTracks.find((t: any) =>
+      t.languageCode.startsWith("en")
+    );
+    return manualTrack || autoTrack || anyEnglish || anyEnglishAuto || null;
+  }
+
   try {
+    // Method 1: Try reading from window object (works after SPA navigation)
+    try {
+      const playerResponse = (window as any).ytInitialPlayerResponse;
+      if (playerResponse) {
+        const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        if (tracks?.length > 0) {
+          const track = findTrack(tracks);
+          if (track?.baseUrl) {
+            console.log("[Vocabify] Got subtitle URL from window.ytInitialPlayerResponse");
+            return track.baseUrl;
+          }
+        }
+      }
+    } catch { /* fallthrough */ }
+
+    // Method 2: Try ytplayer.config (another common location)
+    try {
+      const ytplayer = (window as any).ytplayer;
+      const config = ytplayer?.config?.args;
+      if (config?.raw_player_response) {
+        const tracks = config.raw_player_response?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        if (tracks?.length > 0) {
+          const track = findTrack(tracks);
+          if (track?.baseUrl) {
+            console.log("[Vocabify] Got subtitle URL from ytplayer.config");
+            return track.baseUrl;
+          }
+        }
+      }
+    } catch { /* fallthrough */ }
+
+    // Method 3: Parse from script tags (works on initial page load)
     const scripts = document.querySelectorAll("script");
     for (const script of scripts) {
       const content = script.textContent || "";
-      if (content.includes("ytInitialPlayerResponse")) {
-        // Use greedy match — the non-greedy `.+?` can stop too early on nested objects
-        const match = content.match(/ytInitialPlayerResponse\s*=\s*(\{.+\})\s*;/);
-        if (match) {
-          const data = JSON.parse(match[1]);
-          const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-          if (captionTracks && captionTracks.length > 0) {
-            // Find matching language track
-            const track = captionTracks.find((t: any) => 
-              t.languageCode === lang || t.languageCode.startsWith(lang + "-")
-            ) || captionTracks.find((t: any) =>
-              t.languageCode.startsWith("en")
-            ) || captionTracks[0];
-            
-            if (track?.baseUrl) {
-              return track.baseUrl;
-            }
-          }
+      const idx = content.indexOf("ytInitialPlayerResponse");
+      if (idx === -1) continue;
+
+      // Use balanced-brace extraction instead of regex (regex can't handle nested JSON)
+      const jsonStr = extractJsonObject(content, idx);
+      if (!jsonStr) continue;
+
+      try {
+        const data = JSON.parse(jsonStr);
+        const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        if (!captionTracks || captionTracks.length === 0) continue;
+
+        const track = findTrack(captionTracks);
+        if (track?.baseUrl) {
+          console.log("[Vocabify] Got subtitle URL from script tag");
+          return track.baseUrl;
         }
+      } catch {
+        continue;
       }
     }
   } catch (e) {

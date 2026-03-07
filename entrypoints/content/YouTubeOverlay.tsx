@@ -80,22 +80,12 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
 
     (async () => {
       try {
-        let subs = await fetchSubtitles(videoId, "en");
+        // fetchSubtitles already falls back to any English track via getSubtitleUrlFromPage
+        const subs = await fetchSubtitles(videoId, "en");
         if (cancelled) return;
-
-        if (subs.length === 0) {
-          subs = await fetchSubtitles(videoId, "en-US");
-          if (cancelled) return;
-        }
-
-        if (subs.length === 0) {
-          subs = await fetchSubtitles(videoId, "en-GB");
-          if (cancelled) return;
-        }
 
         if (subs.length > 0) {
           setSubtitles(subs);
-          console.log(`[Vocabify] Loaded ${subs.length} subtitle cues`);
         } else {
           setError("No English subtitles available");
         }
