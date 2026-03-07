@@ -134,7 +134,6 @@ function extractJsonObject(text: string, startIdx: number): string | null {
 function getSubtitleUrlFromPage(lang: string): string | null {
   // Helper to find a matching track from caption tracks
   function findTrack(captionTracks: any[]): any | null {
-    // Prefer manual over auto-generated
     const manualTrack = captionTracks.find((t: any) =>
       (t.languageCode === lang || t.languageCode.startsWith(lang + "-")) && t.kind !== "asr"
     );
@@ -151,45 +150,21 @@ function getSubtitleUrlFromPage(lang: string): string | null {
   }
 
   try {
-    // Method 1: Try reading from window object (works after SPA navigation)
-    try {
-      const playerResponse = (window as any).ytInitialPlayerResponse;
-      if (playerResponse) {
-        const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-        if (tracks?.length > 0) {
-          const track = findTrack(tracks);
-          if (track?.baseUrl) {
-            console.log("[Vocabify] Got subtitle URL from window.ytInitialPlayerResponse");
-            return track.baseUrl;
-          }
-        }
-      }
-    } catch { /* fallthrough */ }
-
-    // Method 2: Try ytplayer.config (another common location)
-    try {
-      const ytplayer = (window as any).ytplayer;
-      const config = ytplayer?.config?.args;
-      if (config?.raw_player_response) {
-        const tracks = config.raw_player_response?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-        if (tracks?.length > 0) {
-          const track = findTrack(tracks);
-          if (track?.baseUrl) {
-            console.log("[Vocabify] Got subtitle URL from ytplayer.config");
-            return track.baseUrl;
-          }
-        }
-      }
-    } catch { /* fallthrough */ }
-
-    // Method 3: Parse from script tags (works on initial page load)
+    // Parse from script tags — content scripts CAN read the DOM/script text content,
+    // they just can't access JS variables set by the page.
+    // ytInitialPlayerResponse is assigned in a script tag and contains the full player
+    // response with captions data.
     const scripts = document.querySelectorAll("script");
     for (const script of scripts) {
       const content = script.textContent || "";
+      
+      // Skip scripts that don't contain caption data (optimization)
+      if (!content.includes("captionTracks")) continue;
+      
       const idx = content.indexOf("ytInitialPlayerResponse");
       if (idx === -1) continue;
 
-      // Use balanced-brace extraction instead of regex (regex can't handle nested JSON)
+      // Use balanced-brace extraction (regex can't handle nested JSON)
       const jsonStr = extractJsonObject(content, idx);
       if (!jsonStr) continue;
 
@@ -200,7 +175,7 @@ function getSubtitleUrlFromPage(lang: string): string | null {
 
         const track = findTrack(captionTracks);
         if (track?.baseUrl) {
-          console.log("[Vocabify] Got subtitle URL from script tag");
+          console.log("[Vocabify] Got subtitle URL from script tag parsing");
           return track.baseUrl;
         }
       } catch {

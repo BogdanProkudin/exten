@@ -312,25 +312,32 @@ export default defineBackground(() => {
         world: "MAIN",
         func: (lang: string) => {
           try {
-            const response = (window as any).ytInitialPlayerResponse;
-            if (!response?.captions?.playerCaptionsTracklistRenderer?.captionTracks) {
-              return null;
+            // Try multiple sources for the player response
+            const candidates = [
+              (window as any).ytInitialPlayerResponse,
+              (window as any).ytplayer?.bootstrapPlayerResponse,
+              (window as any).ytplayer?.config?.args?.raw_player_response,
+            ];
+
+            for (const response of candidates) {
+              const tracks = response?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+              if (!tracks || tracks.length === 0) continue;
+
+              let manual = null as any, auto = null as any, anyEn = null as any;
+              for (const t of tracks) {
+                const lc = t.languageCode || "";
+                const isMatch = lc === lang || lc.startsWith(lang + "-");
+                const isEn = lc.startsWith("en");
+                const isManual = t.kind !== "asr";
+                if (isMatch && isManual && !manual) manual = t;
+                else if (isMatch && !auto) auto = t;
+                else if (isEn && isManual && !anyEn) anyEn = t;
+                else if (isEn && !anyEn) anyEn = t;
+              }
+              const best = manual || auto || anyEn;
+              if (best?.baseUrl) return best.baseUrl;
             }
-            const tracks = response.captions.playerCaptionsTracklistRenderer.captionTracks;
-            // Find best matching track
-            let manual = null as any, auto = null as any, anyEn = null as any;
-            for (const t of tracks) {
-              const lc = t.languageCode || "";
-              const isMatch = lc === lang || lc.startsWith(lang + "-");
-              const isEn = lc.startsWith("en");
-              const isManual = t.kind !== "asr";
-              if (isMatch && isManual && !manual) manual = t;
-              else if (isMatch && !auto) auto = t;
-              else if (isEn && isManual && !anyEn) anyEn = t;
-              else if (isEn && !anyEn) anyEn = t;
-            }
-            const best = manual || auto || anyEn;
-            return best?.baseUrl || null;
+            return null;
           } catch {
             return null;
           }
