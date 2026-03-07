@@ -175,75 +175,75 @@ export default function App() {
     });
   }, []);
 
+  // Time-based greeting
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 6) return { text: "Burning the midnight oil?", emoji: "🌙" };
+    if (hour < 12) return { text: "Good morning", emoji: "☀️" };
+    if (hour < 17) return { text: "Good afternoon", emoji: "🌤️" };
+    if (hour < 21) return { text: "Good evening", emoji: "🌆" };
+    return { text: "Late night learning", emoji: "🌙" };
+  };
+  const greeting = getGreeting();
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-10 border-b border-gray-200" style={{ background: "rgba(249, 250, 251, 0.85)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+    <div className="min-h-screen" style={{ background: "linear-gradient(135deg, #f8fafc 0%, #eef2ff 50%, #f0fdf4 100%)" }}>
+      <header className="sticky top-0 z-10 border-b border-gray-200/60" style={{ background: "rgba(255, 255, 255, 0.72)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" }}>
+        <div className="max-w-4xl mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-sm shadow-blue-200">
               <span className="text-white font-bold text-sm">V</span>
             </div>
-            <h1 className="text-lg font-semibold text-gray-900">Vocabify</h1>
+            <div>
+              <h1 className="text-base font-semibold text-gray-900 leading-tight">Vocabify</h1>
+              <p className="text-xs text-gray-400">{greeting.emoji} {greeting.text}</p>
+            </div>
           </div>
-          <nav className="flex gap-1 bg-gray-100 rounded-lg p-1" role="tablist" aria-label="Dashboard tabs">
-            <TabButton
-              active={activeTab === "review"}
-              onClick={() => setActiveTab("review")}
-              id="review"
-            >
-              Review
+          <nav className="flex gap-0.5 bg-gray-100/80 rounded-xl p-1" role="tablist" aria-label="Dashboard tabs">
+            <TabButton active={activeTab === "review"} onClick={() => setActiveTab("review")} id="review">
+              📖 Review
             </TabButton>
-            <TabButton
-              active={activeTab === "vocabulary"}
-              onClick={() => setActiveTab("vocabulary")}
-              id="vocabulary"
-            >
-              Vocabulary
+            <TabButton active={activeTab === "vocabulary"} onClick={() => setActiveTab("vocabulary")} id="vocabulary">
+              📚 Words
             </TabButton>
-            <TabButton
-              active={activeTab === "hard"}
-              onClick={() => setActiveTab("hard")}
-              id="hard"
-            >
-              Hard Words
+            <TabButton active={activeTab === "hard"} onClick={() => setActiveTab("hard")} id="hard">
+              ⭐ Hard
             </TabButton>
-            <TabButton
-              active={activeTab === "stats"}
-              onClick={() => setActiveTab("stats")}
-              id="stats"
-            >
-              Stats
+            <TabButton active={activeTab === "stats"} onClick={() => setActiveTab("stats")} id="stats">
+              📊 Stats
             </TabButton>
           </nav>
-          <button
-            onClick={() => setShowQuiz(true)}
-            className="ml-2 p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-            title="Quiz Mode"
-          >
-            🎯
-          </button>
-          <button
-            onClick={() => setShowWriting(true)}
-            className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-            title="Writing Practice"
-          >
-            ✍️
-          </button>
-          <button
-            onClick={() => setShowImportExport(true)}
-            className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-            title="Import / Export"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowQuiz(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg hover:bg-indigo-50 text-gray-500 hover:text-indigo-600 transition-all text-xs font-medium"
+              title="Quiz Mode"
+            >
+              🎯 Quiz
+            </button>
+            <button
+              onClick={() => setShowWriting(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg hover:bg-purple-50 text-gray-500 hover:text-purple-600 transition-all text-xs font-medium"
+              title="Writing Practice"
+            >
+              ✍️ Write
+            </button>
+            <button
+              onClick={() => setShowImportExport(true)}
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+              title="Import / Export"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 py-8">
+      <main className="max-w-4xl mx-auto px-6 py-8">
         <ErrorBoundary>
           {!deviceId ? (
             <LoadingSkeleton />
@@ -293,11 +293,11 @@ export default function App() {
 function LoadingSkeleton() {
   return (
     <div className="flex justify-center">
-      <div className="max-w-md w-full space-y-4">
-        <div className="h-48 bg-gray-100 rounded-2xl animate-pulse" />
-        <div className="flex gap-6 justify-center">
+      <div className="max-w-lg w-full space-y-4">
+        <div className="h-56 bg-white/60 rounded-2xl animate-pulse border border-gray-100" />
+        <div className="flex gap-3">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-12 w-16 bg-gray-100 rounded-lg animate-pulse" />
+            <div key={i} className="flex-1 h-16 bg-white/60 rounded-xl animate-pulse border border-gray-100" />
           ))}
         </div>
       </div>
@@ -322,10 +322,10 @@ function TabButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+      className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-all ${
         active
-          ? "bg-white text-gray-900 shadow-sm"
-          : "text-gray-500 hover:text-gray-700"
+          ? "bg-white text-gray-900 shadow-sm ring-1 ring-gray-200/50"
+          : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
       }`}
     >
       {children}
@@ -513,25 +513,55 @@ function ReviewTab({ deviceId }: { deviceId: string }) {
       {/* Review Card */}
       <div className="flex justify-center mb-8">
         {!currentWord ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 max-w-md w-full">
-            <EmptyState
-              icon="&#10003;"
-              title="All caught up!"
-              description="No words need review right now. Keep browsing and saving new words!"
-              cta={
-                <button
-                  onClick={() => {
-                    setSessionActive(false);
-                    setCurrentIndex(0);
-                    setQueue(reviewWordsLive ? [...reviewWordsLive] : undefined);
-                    chrome.storage.session?.remove(["reviewQueue", "reviewIndex"]);
-                  }}
-                  className="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-                >
-                  Refresh
-                </button>
-              }
-            />
+          <div className="max-w-lg w-full space-y-5">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+              <EmptyState
+                icon="🎉"
+                title="You're all caught up!"
+                description="No words need review right now. Keep browsing the web and saving words you encounter — they'll appear here when it's time to practice."
+                cta={
+                  <button
+                    onClick={() => {
+                      setSessionActive(false);
+                      setCurrentIndex(0);
+                      setQueue(reviewWordsLive ? [...reviewWordsLive] : undefined);
+                      chrome.storage.session?.remove(["reviewQueue", "reviewIndex"]);
+                    }}
+                    className="px-5 py-2.5 text-sm font-medium rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 shadow-sm shadow-blue-200 transition-all hover:shadow-md"
+                  >
+                    Check Again
+                  </button>
+                }
+              />
+            </div>
+            
+            {/* Quick Actions */}
+            <div className="grid grid-cols-3 gap-3">
+              <button
+                onClick={() => setShowQuiz(true)}
+                className="bg-white rounded-xl border border-gray-200 p-4 text-center hover:border-indigo-200 hover:bg-indigo-50/50 transition-all group"
+              >
+                <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">🎯</div>
+                <p className="text-xs font-medium text-gray-700">Take a Quiz</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Test your knowledge</p>
+              </button>
+              <button
+                onClick={() => setShowWriting(true)}
+                className="bg-white rounded-xl border border-gray-200 p-4 text-center hover:border-purple-200 hover:bg-purple-50/50 transition-all group"
+              >
+                <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">✍️</div>
+                <p className="text-xs font-medium text-gray-700">Practice Writing</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Use words in context</p>
+              </button>
+              <button
+                onClick={() => setActiveTab("vocabulary")}
+                className="bg-white rounded-xl border border-gray-200 p-4 text-center hover:border-green-200 hover:bg-green-50/50 transition-all group"
+              >
+                <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">📚</div>
+                <p className="text-xs font-medium text-gray-700">Browse Words</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">See your vocabulary</p>
+              </button>
+            </div>
           </div>
         ) : (
           <div className="relative max-w-md w-full" key={currentIndex}>
@@ -598,12 +628,12 @@ function ReviewTab({ deviceId }: { deviceId: string }) {
               <div>
                 <button
                   onClick={() => setRevealed(true)}
-                  className="w-full py-3 text-sm font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                  className="w-full py-3.5 text-sm font-medium rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 shadow-sm shadow-blue-200 transition-all hover:shadow-md active:scale-[0.98]"
                 >
                   Reveal Translation
                 </button>
-                <p className="text-xs text-gray-500 text-center mt-2">
-                  Press Space to reveal
+                <p className="text-[11px] text-gray-400 text-center mt-2.5 flex items-center justify-center gap-1.5">
+                  <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-mono text-gray-500 border border-gray-200">Space</kbd> to reveal
                 </p>
               </div>
             ) : (
@@ -618,19 +648,20 @@ function ReviewTab({ deviceId }: { deviceId: string }) {
                     <div className="flex gap-3">
                       <button
                         onClick={() => handleAnswer(false)}
-                        className="flex-1 py-3 text-sm font-medium rounded-xl bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                        className="flex-1 py-3.5 text-sm font-medium rounded-xl bg-red-50 text-red-600 hover:bg-red-100 ring-1 ring-red-100 transition-all active:scale-[0.98]"
                       >
-                        I Forgot
+                        😕 Forgot
                       </button>
                       <button
                         onClick={() => handleAnswer(true)}
-                        className="flex-1 py-3 text-sm font-medium rounded-xl bg-green-50 text-green-600 hover:bg-green-100 transition-colors"
+                        className="flex-1 py-3.5 text-sm font-medium rounded-xl bg-green-50 text-green-600 hover:bg-green-100 ring-1 ring-green-100 transition-all active:scale-[0.98]"
                       >
-                        I Remembered
+                        ✅ Remembered
                       </button>
                     </div>
-                    <p className="text-xs text-gray-500 text-center mt-2">
-                      ← Forgot · Remembered →
+                    <p className="text-[11px] text-gray-400 text-center mt-2.5 flex items-center justify-center gap-3">
+                      <span className="flex items-center gap-1"><kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-mono text-gray-500 border border-gray-200">←</kbd> Forgot</span>
+                      <span className="flex items-center gap-1">Remembered <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-mono text-gray-500 border border-gray-200">→</kbd></span>
                     </p>
                   </div>
                 )}
@@ -643,11 +674,11 @@ function ReviewTab({ deviceId }: { deviceId: string }) {
 
       {/* Stats Bar */}
       {stats && (
-        <div className="flex justify-center gap-6 text-center">
-          <MiniStat label="Total" value={stats.total} />
-          <MiniStat label="Learning" value={stats.learning} />
-          <MiniStat label="Known" value={stats.known} />
-          <MiniStat label="To Review" value={stats.needReview} />
+        <div className="flex justify-center gap-3 max-w-lg mx-auto">
+          <MiniStat label="Total" value={stats.total} color="blue" />
+          <MiniStat label="Learning" value={stats.learning} color="amber" />
+          <MiniStat label="Known" value={stats.known} color="green" />
+          <MiniStat label="To Review" value={stats.needReview} color="purple" />
         </div>
       )}
     </div>
@@ -656,20 +687,29 @@ function ReviewTab({ deviceId }: { deviceId: string }) {
 
 function EmptyState({ icon, title, description, cta }: { icon: string; title: string; description: string; cta?: ReactNode }) {
   return (
-    <div className="text-center py-16" style={{ animation: "fadeInUp 250ms cubic-bezier(0.0, 0.0, 0.2, 1.0) both" }}>
-      <div className="text-5xl mb-4" style={{ lineHeight: 1 }}>{icon}</div>
+    <div className="text-center py-12" style={{ animation: "fadeInUp 250ms cubic-bezier(0.0, 0.0, 0.2, 1.0) both" }}>
+      <div className="w-20 h-20 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center" style={{ fontSize: "36px", lineHeight: 1 }}>
+        {icon}
+      </div>
       <h2 className="text-xl font-semibold text-gray-900 mb-2">{title}</h2>
-      <p className="text-sm text-gray-500 max-w-xs mx-auto">{description}</p>
-      {cta && <div className="mt-4">{cta}</div>}
+      <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">{description}</p>
+      {cta && <div className="mt-5">{cta}</div>}
     </div>
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: number }) {
+function MiniStat({ label, value, color = "blue" }: { label: string; value: number; color?: string }) {
+  const colorMap: Record<string, { bg: string; text: string; ring: string }> = {
+    blue: { bg: "bg-blue-50", text: "text-blue-600", ring: "ring-blue-100" },
+    green: { bg: "bg-green-50", text: "text-green-600", ring: "ring-green-100" },
+    amber: { bg: "bg-amber-50", text: "text-amber-600", ring: "ring-amber-100" },
+    purple: { bg: "bg-purple-50", text: "text-purple-600", ring: "ring-purple-100" },
+  };
+  const c = colorMap[color] || colorMap.blue;
   return (
-    <div>
-      <p className="text-xl font-bold text-gray-900">{value}</p>
-      <p className="text-xs text-gray-500">{label}</p>
+    <div className={`flex-1 ${c.bg} rounded-xl p-4 ring-1 ${c.ring} text-center transition-transform hover:scale-105`}>
+      <p className={`text-2xl font-bold ${c.text}`}>{value}</p>
+      <p className="text-xs text-gray-500 mt-0.5 font-medium">{label}</p>
     </div>
   );
 }
