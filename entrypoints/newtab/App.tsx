@@ -16,6 +16,7 @@ import { shouldShowTip, markTipSeen, dismissTipForever, incrementCounter } from 
 import { ImportExport } from "./ImportExport";
 import { QuizMode } from "./QuizMode";
 import { WordOfTheDay } from "./WordOfTheDay";
+import { WritingPractice } from "./WritingPractice";
 
 // --- Error Boundary ---
 interface ErrorBoundaryProps {
@@ -150,6 +151,7 @@ export default function App() {
   });
   const [showImportExport, setShowImportExport] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
+  const [showWriting, setShowWriting] = useState(false);
 
   // Tab routing via hash
   useEffect(() => {
@@ -221,6 +223,13 @@ export default function App() {
             🎯
           </button>
           <button
+            onClick={() => setShowWriting(true)}
+            className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+            title="Writing Practice"
+          >
+            ✍️
+          </button>
+          <button
             onClick={() => setShowImportExport(true)}
             className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
             title="Import / Export"
@@ -267,6 +276,14 @@ export default function App() {
         <QuizMode
           deviceId={deviceId}
           onClose={() => setShowQuiz(false)}
+        />
+      )}
+      
+      {/* Writing Practice Modal */}
+      {showWriting && deviceId && (
+        <WritingPractice
+          deviceId={deviceId}
+          onClose={() => setShowWriting(false)}
         />
       )}
     </div>
