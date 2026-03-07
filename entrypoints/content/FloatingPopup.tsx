@@ -282,6 +282,9 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
       setTimeout(fadeOutAndClose, 2000);
     } else {
       console.error("[Vocabify] Save failed:", res);
+      setError(res?.error || "Failed to save word");
+      setErrorShake(true);
+      setTimeout(() => setErrorShake(false), 400);
     }
   };
 

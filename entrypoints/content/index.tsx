@@ -34,6 +34,8 @@ interface RadarData {
   seen: Record<string, { count: number; lastSeenAt: number }>;
 }
 
+const RADAR_MAX_ENTRIES = 500; // Limit radar size to prevent storage overflow
+
 async function updateRadarData(analysis: PageAnalysisResult): Promise<void> {
   const data = await chrome.storage.local.get("vocabifyRadar") as Record<string, RadarData | undefined>;
   const radar: RadarData = data.vocabifyRadar ?? { seen: {} };
@@ -49,6 +51,13 @@ async function updateRadarData(analysis: PageAnalysisResult): Promise<void> {
     } else {
       radar.seen[uw.lemma] = { count: 1, lastSeenAt: now };
     }
+  }
+
+  // Limit size by removing oldest entries if over limit
+  const entries = Object.entries(radar.seen);
+  if (entries.length > RADAR_MAX_ENTRIES) {
+    entries.sort((a, b) => b[1].lastSeenAt - a[1].lastSeenAt);
+    radar.seen = Object.fromEntries(entries.slice(0, RADAR_MAX_ENTRIES));
   }
 
   await chrome.storage.local.set({ vocabifyRadar: radar });

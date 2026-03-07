@@ -60,24 +60,29 @@ export default function App() {
   // Fetch gamification stats and check for new achievements
   useEffect(() => {
     if (!deviceId) return;
-    chrome.runtime.sendMessage({ type: "GET_STATS" }).then((res) => {
-      if (res?.success && res.stats) {
-        setGamificationStats(res.stats);
-      }
-    });
-    // Check for unnotified achievements
-    chrome.runtime.sendMessage({ type: "GET_ACHIEVEMENTS" }).then((res) => {
-      if (res?.success && res.achievements) {
-        const unnotified = res.achievements.find(
-          (a: Achievement) => a.unlocked && a.unlockedAt && Date.now() - a.unlockedAt < 60000
-        );
-        if (unnotified) {
-          setNewAchievement(unnotified);
-          // Auto-dismiss after 5s
-          setTimeout(() => setNewAchievement(null), 5000);
+    chrome.runtime.sendMessage({ type: "GET_STATS" })
+      .then((res) => {
+        if (res?.success && res.stats) {
+          setGamificationStats(res.stats);
         }
-      }
-    });
+      })
+      .catch((e) => console.error("[Vocabify] Failed to get stats:", e));
+    
+    // Check for unnotified achievements
+    chrome.runtime.sendMessage({ type: "GET_ACHIEVEMENTS" })
+      .then((res) => {
+        if (res?.success && res.achievements) {
+          const unnotified = res.achievements.find(
+            (a: Achievement) => a.unlocked && a.unlockedAt && Date.now() - a.unlockedAt < 60000
+          );
+          if (unnotified) {
+            setNewAchievement(unnotified);
+            // Auto-dismiss after 5s
+            setTimeout(() => setNewAchievement(null), 5000);
+          }
+        }
+      })
+      .catch((e) => console.error("[Vocabify] Failed to get achievements:", e));
   }, [deviceId]);
 
   const stats = useQuery(
