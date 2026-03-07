@@ -41,8 +41,31 @@ export function getSubtitleContainer(): HTMLElement | null {
 
 // Parse subtitle track from YouTube's internal player
 export async function fetchSubtitles(videoId: string, lang: string = "en"): Promise<SubtitleCue[]> {
+  // Try to get subtitle URL from page config first
+  const subtitleUrl = getSubtitleUrlFromPage(lang);
+  
+  if (subtitleUrl) {
+    try {
+      const response = await fetch(subtitleUrl + "&fmt=json3");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.events) {
+          return data.events
+            .filter((event: any) => event.segs)
+            .map((event: any) => ({
+              start: event.tStartMs / 1000,
+              end: (event.tStartMs + (event.dDurationMs || 3000)) / 1000,
+              text: event.segs.map((seg: any) => seg.utf8).join(""),
+            }));
+        }
+      }
+    } catch (e) {
+      console.log("[Vocabify] Subtitle URL fetch failed:", e);
+    }
+  }
+  
+  // Fallback: Try legacy timedtext API
   try {
-    // Try to get subtitles from YouTube's timedtext API
     const response = await fetch(
       `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}&fmt=json3`
     );
@@ -71,10 +94,9 @@ export async function fetchSubtitles(videoId: string, lang: string = "en"): Prom
   }
 }
 
-// Alternative: Extract subtitles from the page's player config
-export function extractSubtitlesFromPage(): SubtitleCue[] {
+// Get subtitle URL from YouTube's player config
+function getSubtitleUrlFromPage(lang: string): string | null {
   try {
-    // YouTube stores caption tracks in ytInitialPlayerResponse
     const scripts = document.querySelectorAll("script");
     for (const script of scripts) {
       const content = script.textContent || "";
@@ -84,22 +106,24 @@ export function extractSubtitlesFromPage(): SubtitleCue[] {
           const data = JSON.parse(match[1]);
           const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
           if (captionTracks && captionTracks.length > 0) {
-            // Return the first English track URL
-            const enTrack = captionTracks.find((t: any) => 
-              t.languageCode === "en" || t.languageCode.startsWith("en-")
+            // Find matching language track
+            const track = captionTracks.find((t: any) => 
+              t.languageCode === lang || t.languageCode.startsWith(lang + "-")
+            ) || captionTracks.find((t: any) =>
+              t.languageCode.startsWith("en")
             ) || captionTracks[0];
             
-            if (enTrack?.baseUrl) {
-              return []; // We have the URL, but need async fetch
+            if (track?.baseUrl) {
+              return track.baseUrl;
             }
           }
         }
       }
     }
   } catch (e) {
-    console.error("[Vocabify] Failed to extract subtitle config:", e);
+    console.log("[Vocabify] Failed to extract subtitle URL from page:", e);
   }
-  return [];
+  return null;
 }
 
 // Get current subtitle cue based on video time

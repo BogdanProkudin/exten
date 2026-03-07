@@ -655,11 +655,15 @@ function QuickReviewInline({
       if (!current) return;
       setAnswered(true);
 
-      await chrome.runtime.sendMessage({
-        type: "REVIEW_RESULT",
-        wordId: current._id,
-        remembered,
-      });
+      try {
+        await chrome.runtime.sendMessage({
+          type: "REVIEW_RESULT",
+          wordId: current._id,
+          remembered,
+        });
+      } catch (e) {
+        console.error("[Vocabify] Quick review failed:", e);
+      }
 
       setTimeout(() => {
         setCurrentIndex((prev) => prev + 1);
