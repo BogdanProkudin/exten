@@ -14,6 +14,8 @@ import type { Id } from "../../convex/_generated/dataModel";
 import { computeStrength, strengthColor } from "../../src/lib/memory-strength";
 import { shouldShowTip, markTipSeen, dismissTipForever, incrementCounter } from "../../src/lib/tips";
 import { ImportExport } from "./ImportExport";
+import { QuizMode } from "./QuizMode";
+import { WordOfTheDay } from "./WordOfTheDay";
 
 // --- Error Boundary ---
 interface ErrorBoundaryProps {
@@ -147,6 +149,7 @@ export default function App() {
     return (params.get("tab") as "review" | "vocabulary" | "hard" | "stats") || "review";
   });
   const [showImportExport, setShowImportExport] = useState(false);
+  const [showQuiz, setShowQuiz] = useState(false);
 
   // Tab routing via hash
   useEffect(() => {
@@ -211,8 +214,15 @@ export default function App() {
             </TabButton>
           </nav>
           <button
+            onClick={() => setShowQuiz(true)}
+            className="ml-2 p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+            title="Quiz Mode"
+          >
+            🎯
+          </button>
+          <button
             onClick={() => setShowImportExport(true)}
-            className="ml-3 p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+            className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
             title="Import / Export"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -249,6 +259,14 @@ export default function App() {
         <ImportExport
           deviceId={deviceId}
           onClose={() => setShowImportExport(false)}
+        />
+      )}
+      
+      {/* Quiz Mode Modal */}
+      {showQuiz && deviceId && (
+        <QuizMode
+          deviceId={deviceId}
+          onClose={() => setShowQuiz(false)}
         />
       )}
     </div>
@@ -432,6 +450,9 @@ function ReviewTab({ deviceId }: { deviceId: string }) {
 
   return (
     <div>
+      {/* Word of the Day */}
+      <WordOfTheDay deviceId={deviceId} />
+      
       {/* Tip banner */}
       {tipVisible && (
         <div
@@ -1160,6 +1181,7 @@ function StatsTab({ deviceId }: { deviceId: string }) {
   const gamificationStats = useQuery(api.gamification.getStats, { deviceId });
   const achievements = useQuery(api.gamification.getAchievements, { deviceId });
   const wordStats = useQuery(api.words.stats, { deviceId });
+  const insights = useQuery(api.analytics.getInsights, { deviceId });
 
   if (!gamificationStats || !achievements || !wordStats) {
     return (
@@ -1272,6 +1294,91 @@ function StatsTab({ deviceId }: { deviceId: string }) {
           </div>
         </div>
       </div>
+
+      {/* Learning Insights */}
+      {insights && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">📊 Learning Insights</h3>
+          
+          {/* Weekly Activity Chart */}
+          <div className="mb-4">
+            <p className="text-xs text-gray-500 mb-2">Words added this week</p>
+            <div className="flex items-end gap-1 h-16">
+              {insights.weeklyActivity.map((day, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center">
+                  <div 
+                    className="w-full bg-blue-500 rounded-t transition-all"
+                    style={{ 
+                      height: `${Math.max(4, (day.count / Math.max(...insights.weeklyActivity.map(d => d.count), 1)) * 48)}px` 
+                    }}
+                  />
+                  <span className="text-[10px] text-gray-500 mt-1">{day.day}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Key Metrics */}
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="text-center p-2 bg-gray-50 rounded-lg">
+              <p className="text-lg font-bold text-gray-900">
+                {insights.velocity}
+                <span className="text-xs font-normal text-gray-500">/day</span>
+              </p>
+              <p className="text-xs text-gray-500">Learning pace</p>
+            </div>
+            <div className="text-center p-2 bg-gray-50 rounded-lg">
+              <p className="text-lg font-bold text-gray-900">{insights.retentionRate}%</p>
+              <p className="text-xs text-gray-500">Mastery rate</p>
+            </div>
+            <div className="text-center p-2 bg-gray-50 rounded-lg">
+              <p className="text-lg font-bold text-amber-600">{insights.dueForReview}</p>
+              <p className="text-xs text-gray-500">Due for review</p>
+            </div>
+          </div>
+
+          {/* Hardest Words */}
+          {insights.hardestWords.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs font-medium text-gray-700 mb-2">🔥 Challenging words</p>
+              <div className="flex flex-wrap gap-1">
+                {insights.hardestWords.map((w, i) => (
+                  <span key={i} className="px-2 py-1 bg-red-50 text-red-700 text-xs rounded-full">
+                    {w.word}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Status Breakdown */}
+          <div>
+            <p className="text-xs font-medium text-gray-700 mb-2">Progress breakdown</p>
+            <div className="h-3 bg-gray-200 rounded-full overflow-hidden flex">
+              <div 
+                className="bg-green-500 transition-all" 
+                style={{ width: `${(insights.statusBreakdown.known / insights.totalWords) * 100}%` }}
+                title={`Known: ${insights.statusBreakdown.known}`}
+              />
+              <div 
+                className="bg-blue-500 transition-all" 
+                style={{ width: `${(insights.statusBreakdown.learning / insights.totalWords) * 100}%` }}
+                title={`Learning: ${insights.statusBreakdown.learning}`}
+              />
+              <div 
+                className="bg-gray-400 transition-all" 
+                style={{ width: `${(insights.statusBreakdown.new / insights.totalWords) * 100}%` }}
+                title={`New: ${insights.statusBreakdown.new}`}
+              />
+            </div>
+            <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+              <span>✓ Known ({insights.statusBreakdown.known})</span>
+              <span>📚 Learning ({insights.statusBreakdown.learning})</span>
+              <span>🆕 New ({insights.statusBreakdown.new})</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Achievements */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">

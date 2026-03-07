@@ -458,6 +458,84 @@ export const getAllForExport = query({
   },
 });
 
+// Get word of the day - prioritizes words that need review
+export const getWordOfTheDay = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, { deviceId }) => {
+    const words = await ctx.db
+      .query("words")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+    
+    if (words.length === 0) return null;
+    
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    
+    // Calculate a deterministic "random" based on date
+    const today = Math.floor(now / dayMs);
+    const seed = today % words.length;
+    
+    // Score words by need for review (higher = needs more practice)
+    const scoredWords = words.map((w) => {
+      const daysSinceReview = w.lastReviewed 
+        ? (now - w.lastReviewed) / dayMs 
+        : 30; // Never reviewed = high priority
+      const intervalDays = w.intervalDays || 1;
+      const overdue = daysSinceReview / intervalDays;
+      
+      // Strength calculation
+      const strength = Math.max(0, Math.min(100, 
+        (w.consecutiveCorrect || 0) * 15 + 
+        (w.status === "known" ? 50 : w.status === "learning" ? 25 : 0) -
+        (overdue > 1 ? (overdue - 1) * 10 : 0)
+      ));
+      
+      return {
+        word: w,
+        score: overdue + (w.difficulty || 1) + (w.isHard ? 2 : 0),
+        strength: Math.round(strength),
+      };
+    });
+    
+    // Sort by score (highest = most needs practice) and pick based on seed
+    scoredWords.sort((a, b) => b.score - a.score);
+    const topCandidates = scoredWords.slice(0, Math.max(5, Math.floor(words.length * 0.3)));
+    const selected = topCandidates[seed % topCandidates.length];
+    
+    return {
+      word: selected.word.word,
+      translation: selected.word.translation,
+      example: selected.word.example || null,
+      strength: selected.strength,
+      reviewCount: selected.word.reviewCount || 0,
+    };
+  },
+});
+
+// Get words for quiz mode
+export const getQuizWords = query({
+  args: { deviceId: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { deviceId, limit }) => {
+    const words = await ctx.db
+      .query("words")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+    
+    // Filter to words that have translations and shuffle
+    const validWords = words
+      .filter((w) => w.word && w.translation)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, limit || 50);
+    
+    return validWords.map((w) => ({
+      _id: w._id,
+      word: w.word,
+      translation: w.translation,
+    }));
+  },
+});
+
 // Import a single word (used for batch import)
 export const importWord = mutation({
   args: {

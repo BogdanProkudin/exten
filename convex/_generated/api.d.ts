@@ -9,6 +9,7 @@
  */
 
 import type * as ai from "../ai.js";
+import type * as analytics from "../analytics.js";
 import type * as events from "../events.js";
 import type * as gamification from "../gamification.js";
 import type * as words from "../words.js";
@@ -21,6 +22,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   ai: typeof ai;
+  analytics: typeof analytics;
   events: typeof events;
   gamification: typeof gamification;
   words: typeof words;
