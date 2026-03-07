@@ -25,15 +25,23 @@ interface SavedWordData {
   intervalDays: number;
 }
 
+interface Achievement {
+  id: string;
+  name: string;
+  icon: string;
+  xp: number;
+}
+
 interface FloatingPopupProps {
   word: string;
   position: { x: number; y: number; placeAbove?: boolean };
   onClose: () => void;
   vocabLemmas?: Set<string>;
   onSaved?: (lemma: string) => void;
+  onAchievement?: (achievement: Achievement) => void;
 }
 
-export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved }: FloatingPopupProps) {
+export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, onAchievement }: FloatingPopupProps) {
   const [translation, setTranslation] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -258,6 +266,15 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved }:
       // Show XP earned
       if (res.xp?.xpAwarded) {
         setXpEarned(res.xp.xpAwarded);
+      }
+      // Show achievement notifications
+      if (res.xp?.newAchievements && res.xp.newAchievements.length > 0) {
+        // Delay achievement display until after save animation
+        setTimeout(() => {
+          for (const achievement of res.xp.newAchievements) {
+            onAchievement?.(achievement);
+          }
+        }, 1000);
       }
       incrementCounter("wordsSaved");
       if (withContext) incrementCounter("saveContextUsed", true);

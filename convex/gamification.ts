@@ -271,8 +271,8 @@ async function checkAchievements(
   ctx: any,
   deviceId: string,
   stats: { totalWords: number; totalReviews: number; streak: number; level: number }
-): Promise<Array<{ id: string; name: string; icon: string; xp: number }>> {
-  const newAchievements: Array<{ id: string; name: string; icon: string; xp: number }> = [];
+): Promise<Array<{ id: string; name: string; description: string; icon: string; xp: number }>> {
+  const newAchievements: Array<{ id: string; name: string; description: string; icon: string; xp: number }> = [];
 
   const achievementsToCheck = [
     { id: "first_word", condition: stats.totalWords >= 1 },
@@ -312,6 +312,7 @@ async function checkAchievements(
       newAchievements.push({
         id,
         name: achievement.name,
+        description: achievement.description,
         icon: achievement.icon,
         xp: achievement.xp,
       });

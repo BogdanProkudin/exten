@@ -4,6 +4,7 @@ import { ReviewToast } from "./ReviewToast";
 import { ReadingBadge } from "./ReadingBadge";
 import { ReadingPanel } from "./ReadingPanel";
 import { SimplifyPanel } from "./SimplifyPanel";
+import { AchievementToast } from "./AchievementToast";
 import { analyzePageContent, type PageAnalysisResult, type VocabCache } from "../../src/lib/page-analyzer";
 import "../../src/global.css";
 
@@ -103,7 +104,46 @@ export default defineContentScript({
     let badgeUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let panelUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let simplifyUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
+    let achievementUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let currentAnalysis: PageAnalysisResult | null = null;
+
+    // Show achievement notification
+    async function showAchievementToast(achievement: { id: string; name: string; icon: string; xp: number; description?: string }) {
+      // Close existing achievement toast
+      if (achievementUi) {
+        achievementUi.remove();
+        achievementUi = null;
+      }
+
+      achievementUi = await createShadowRootUi(ctx, {
+        name: "vocabify-achievement",
+        position: "overlay",
+        zIndex: 2147483647,
+        onMount(container) {
+          container.style.pointerEvents = "none";
+          container.style.fontSize = "16px";
+          const root = ReactDOM.createRoot(container);
+          root.render(
+            <AchievementToast
+              achievement={{
+                ...achievement,
+                description: achievement.description || "",
+              }}
+              onClose={() => {
+                achievementUi?.remove();
+                achievementUi = null;
+              }}
+            />,
+          );
+          return root;
+        },
+        onRemove(root) {
+          root?.unmount();
+        },
+      });
+
+      achievementUi.mount();
+    }
 
     // Vocab cache: lemmas the user has already saved (for instant saved-word detection in popup)
     let vocabCacheLemmas: Set<string> | null = null;
@@ -218,6 +258,9 @@ export default defineContentScript({
                 vocabCacheLemmas.add(lemma);
                 vocabCacheLemmas.add(text.toLowerCase());
                 console.log("[Vocabify] Cache updated, lemmas:", Array.from(vocabCacheLemmas));
+              }}
+              onAchievement={(achievement) => {
+                showAchievementToast(achievement);
               }}
             />,
           );

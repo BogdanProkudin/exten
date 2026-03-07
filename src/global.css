@@ -36,6 +36,18 @@
   100% { transform: scale(1) }
 }
 
+@keyframes confettiFall {
+  0%   { transform: translateY(0) rotate(0deg); opacity: 1 }
+  100% { transform: translateY(150px) rotate(720deg); opacity: 0 }
+}
+
+@keyframes achievementIconPop {
+  0%   { transform: scale(0) rotate(-180deg); opacity: 0 }
+  60%  { transform: scale(1.2) rotate(10deg) }
+  80%  { transform: scale(0.9) rotate(-5deg) }
+  100% { transform: scale(1) rotate(0deg); opacity: 1 }
+}
+
 @keyframes shake {
   0%, 100% { transform: translateX(0) }
   20% { transform: translateX(-4px) }
