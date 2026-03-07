@@ -42,8 +42,7 @@ type GetWordByLemmaMessage = { type: "GET_WORD_BY_LEMMA"; lemma: string; word?: 
 type ToggleHardMessage = { type: "TOGGLE_HARD"; wordId: string };
 type AddContextMessage = { type: "ADD_CONTEXT"; wordId: string; sentence: string; url: string };
 type DeleteWordMessage = { type: "DELETE_WORD"; wordId: string };
-type GetSubtitleUrlMessage = { type: "GET_SUBTITLE_URL"; lang: string };
-type FetchSubtitleContentMessage = { type: "FETCH_SUBTITLE_CONTENT"; url: string };
+type FetchYouTubeSubtitlesMessage = { type: "FETCH_YOUTUBE_SUBTITLES"; lang: string };
 
 type AppMessage =
   | TranslateMessage
@@ -61,8 +60,7 @@ type AppMessage =
   | GetStatsMessage
   | GetAchievementsMessage
   | DeleteWordMessage
-  | GetSubtitleUrlMessage
-  | FetchSubtitleContentMessage;
+  | FetchYouTubeSubtitlesMessage;
 
 function isValidMessage(msg: unknown): msg is AppMessage {
   if (!msg || typeof msg !== "object" || !("type" in msg)) return false;
@@ -98,10 +96,8 @@ function isValidMessage(msg: unknown): msg is AppMessage {
       return true;
     case "DELETE_WORD":
       return typeof m.wordId === "string";
-    case "GET_SUBTITLE_URL":
+    case "FETCH_YOUTUBE_SUBTITLES":
       return typeof m.lang === "string";
-    case "FETCH_SUBTITLE_CONTENT":
-      return typeof m.url === "string";
     default:
       return false;
   }
@@ -307,32 +303,31 @@ export default defineBackground(() => {
       return false;
     }
 
-    // Handle GET_SUBTITLE_URL specially — needs sender.tab.id for executeScript
-    if (message.type === "GET_SUBTITLE_URL" && sender.tab?.id) {
+    // Handle FETCH_YOUTUBE_SUBTITLES — find URL AND fetch content inside page context
+    // (Both content script and background fetch() return empty — YouTube requires page cookies)
+    if (message.type === "FETCH_YOUTUBE_SUBTITLES" && sender.tab?.id) {
       const tabId = sender.tab.id;
       const lang = message.lang;
       chrome.scripting.executeScript({
         target: { tabId },
         world: "MAIN",
-        func: (lang: string) => {
+        func: async (lang: string) => {
           try {
-            // Get current video ID from URL
             const currentVideoId = new URLSearchParams(window.location.search).get("v");
-            if (!currentVideoId) return null;
+            if (!currentVideoId) return { error: "No video ID" };
 
-            // Try multiple sources for the player response
+            // Find subtitle URL from player response
             const candidates = [
               (window as any).ytInitialPlayerResponse,
               (window as any).ytplayer?.bootstrapPlayerResponse,
               (window as any).ytplayer?.config?.args?.raw_player_response,
             ];
 
+            let subtitleUrl: string | null = null;
+
             for (const response of candidates) {
-              // Verify the response is for the CURRENT video (not stale from SPA nav)
               const responseVideoId = response?.videoDetails?.videoId;
-              if (responseVideoId && responseVideoId !== currentVideoId) {
-                continue; // Stale data from previous video
-              }
+              if (responseVideoId && responseVideoId !== currentVideoId) continue;
 
               const tracks = response?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
               if (!tracks || tracks.length === 0) continue;
@@ -349,47 +344,43 @@ export default defineBackground(() => {
                 else if (isEn && !anyEn) anyEn = t;
               }
               const best = manual || auto || anyEn;
-              if (best?.baseUrl) return best.baseUrl;
+              if (best?.baseUrl) {
+                subtitleUrl = best.baseUrl;
+                break;
+              }
             }
-            return null;
-          } catch {
-            return null;
+
+            if (!subtitleUrl) return { error: "No subtitle tracks found" };
+
+            // Fetch subtitles from WITHIN the page context (has proper cookies/origin)
+            const url = new URL(subtitleUrl);
+            url.searchParams.set("fmt", "json3");
+            if (!url.searchParams.has("lang")) {
+              url.searchParams.set("lang", lang);
+            }
+
+            const response = await fetch(url.toString());
+            if (!response.ok) return { error: `HTTP ${response.status}` };
+
+            const text = await response.text();
+            if (!text) return { error: "Empty response" };
+
+            return { content: text };
+          } catch (e: any) {
+            return { error: e?.message || String(e) };
           }
         },
         args: [lang],
       }).then((results) => {
-        const url = results?.[0]?.result || null;
-        sendResponse({ success: true, url });
+        const result = results?.[0]?.result as any;
+        if (result?.content) {
+          sendResponse({ success: true, content: result.content });
+        } else {
+          sendResponse({ success: false, error: result?.error || "Unknown error" });
+        }
       }).catch((e) => {
-        console.log("[Vocabify] executeScript failed:", e);
         sendResponse({ success: false, error: String(e) });
       });
-      return true;
-    }
-
-    // Handle FETCH_SUBTITLE_CONTENT — fetch from background context
-    if (message.type === "FETCH_SUBTITLE_CONTENT") {
-      const fetchUrl = message.url;
-      console.log("[Vocabify BG] Fetching subtitle URL:", fetchUrl);
-      fetch(fetchUrl)
-        .then(async (response) => {
-          console.log("[Vocabify BG] Subtitle response:", response.status, response.statusText, "type:", response.type);
-          const content = await response.text();
-          console.log("[Vocabify BG] Subtitle content length:", content.length, "preview:", content.substring(0, 100));
-          if (!response.ok) {
-            sendResponse({ success: false, error: `HTTP ${response.status}: ${content.substring(0, 200)}` });
-            return;
-          }
-          if (content.length === 0) {
-            sendResponse({ success: false, error: "Empty response body" });
-            return;
-          }
-          sendResponse({ success: true, content });
-        })
-        .catch((e) => {
-          console.log("[Vocabify BG] Subtitle fetch error:", e);
-          sendResponse({ success: false, error: String(e) });
-        });
       return true;
     }
 
