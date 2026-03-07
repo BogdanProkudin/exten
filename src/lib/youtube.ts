@@ -238,6 +238,15 @@ function getSubtitleUrlFromPage(lang: string): string | null {
 
       try {
         const data = JSON.parse(jsonStr);
+
+        // Verify this response is for the current video (not stale from SPA nav)
+        const responseVideoId = data?.videoDetails?.videoId;
+        const currentVideoId = getVideoId();
+        if (responseVideoId && currentVideoId && responseVideoId !== currentVideoId) {
+          console.log("[Vocabify] Skipping stale player response for video:", responseVideoId);
+          continue;
+        }
+
         const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
         if (!captionTracks || captionTracks.length === 0) continue;
 

@@ -316,6 +316,10 @@ export default defineBackground(() => {
         world: "MAIN",
         func: (lang: string) => {
           try {
+            // Get current video ID from URL
+            const currentVideoId = new URLSearchParams(window.location.search).get("v");
+            if (!currentVideoId) return null;
+
             // Try multiple sources for the player response
             const candidates = [
               (window as any).ytInitialPlayerResponse,
@@ -324,6 +328,12 @@ export default defineBackground(() => {
             ];
 
             for (const response of candidates) {
+              // Verify the response is for the CURRENT video (not stale from SPA nav)
+              const responseVideoId = response?.videoDetails?.videoId;
+              if (responseVideoId && responseVideoId !== currentVideoId) {
+                continue; // Stale data from previous video
+              }
+
               const tracks = response?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
               if (!tracks || tracks.length === 0) continue;
 
