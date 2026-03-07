@@ -10,6 +10,8 @@ const RADAR_DECAY_ALARM = "vocabify-radar-decay";
 
 // --- Type-safe message types ---
 type TranslateMessage = { type: "TRANSLATE_WORD"; word: string; lang?: string };
+type GetStatsMessage = { type: "GET_STATS" };
+type GetAchievementsMessage = { type: "GET_ACHIEVEMENTS" };
 type SaveMessage = {
   type: "SAVE_WORD";
   word: string;
@@ -52,7 +54,9 @@ type AppMessage =
   | CheckProMessage
   | GetWordByLemmaMessage
   | ToggleHardMessage
-  | AddContextMessage;
+  | AddContextMessage
+  | GetStatsMessage
+  | GetAchievementsMessage;
 
 function isValidMessage(msg: unknown): msg is AppMessage {
   if (!msg || typeof msg !== "object" || !("type" in msg)) return false;
@@ -82,6 +86,10 @@ function isValidMessage(msg: unknown): msg is AppMessage {
       return typeof m.wordId === "string";
     case "ADD_CONTEXT":
       return typeof m.wordId === "string" && typeof m.sentence === "string" && typeof m.url === "string";
+    case "GET_STATS":
+      return true;
+    case "GET_ACHIEVEMENTS":
+      return true;
     default:
       return false;
   }
@@ -231,7 +239,12 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient) {
           exampleSource: message.exampleSource,
         });
         logEvent(convex, deviceId, "word_saved", message.word);
-        return { success: true };
+        // Award XP for saving word
+        const xpResult = await convex.mutation(api.gamification.awardXp, {
+          deviceId,
+          action: "word_saved",
+        });
+        return { success: true, xp: xpResult };
       } catch (e) {
         return { success: false, error: String(e) };
       }
@@ -249,7 +262,17 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient) {
           deviceId,
           message.remembered ? "review_remembered" : "review_forgot",
         );
-        return { success: true, newStatus: result?.newStatus, intervalDays: result?.intervalDays };
+        // Award XP for review
+        const xpResult = await convex.mutation(api.gamification.awardXp, {
+          deviceId,
+          action: message.remembered ? "review_remembered" : "review_forgot",
+        });
+        return { 
+          success: true, 
+          newStatus: result?.newStatus, 
+          intervalDays: result?.intervalDays,
+          xp: xpResult,
+        };
       } catch (e) {
         return { success: false, error: String(e) };
       }
@@ -365,6 +388,24 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient) {
           url: message.url,
         });
         return { success: true, duplicate: result?.duplicate ?? false };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    }
+
+    case "GET_STATS": {
+      try {
+        const stats = await convex.query(api.gamification.getStats, { deviceId });
+        return { success: true, stats };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    }
+
+    case "GET_ACHIEVEMENTS": {
+      try {
+        const achievements = await convex.query(api.gamification.getAchievements, { deviceId });
+        return { success: true, achievements };
       } catch (e) {
         return { success: false, error: String(e) };
       }

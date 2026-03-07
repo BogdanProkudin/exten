@@ -66,4 +66,37 @@ export default defineSchema({
   })
     .index("by_device", ["deviceId"])
     .index("by_device_type", ["deviceId", "type"]),
+
+  // Gamification: User stats
+  userStats: defineTable({
+    deviceId: v.string(),
+    // Streaks
+    currentStreak: v.number(),
+    longestStreak: v.number(),
+    lastActiveDate: v.string(), // YYYY-MM-DD format
+    // XP & Levels
+    totalXp: v.number(),
+    level: v.number(),
+    // Daily progress
+    dailyXp: v.number(),
+    dailyWordsLearned: v.number(),
+    dailyReviewsDone: v.number(),
+    dailyGoalXp: v.number(), // configurable goal
+    // Lifetime stats
+    totalWordsLearned: v.number(),
+    totalReviewsDone: v.number(),
+    // Timestamps
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_device", ["deviceId"]),
+
+  // Gamification: Achievements
+  achievements: defineTable({
+    deviceId: v.string(),
+    achievementId: v.string(), // e.g., "first_word", "streak_7", "level_10"
+    unlockedAt: v.number(),
+    notified: v.boolean(), // whether user has seen the notification
+  })
+    .index("by_device", ["deviceId"])
+    .index("by_device_achievement", ["deviceId", "achievementId"]),
 });

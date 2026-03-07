@@ -40,6 +40,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved }:
   const [errorShake, setErrorShake] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [xpEarned, setXpEarned] = useState<number | null>(null);
   const [fading, setFading] = useState(false);
   const [visible, setVisible] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -254,10 +255,14 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved }:
     if (res?.success) {
       console.log("[Vocabify] Word saved successfully:", { word, lemma });
       setSaved(true);
+      // Show XP earned
+      if (res.xp?.xpAwarded) {
+        setXpEarned(res.xp.xpAwarded);
+      }
       incrementCounter("wordsSaved");
       if (withContext) incrementCounter("saveContextUsed", true);
       onSaved?.(lemma);
-      setTimeout(fadeOutAndClose, 1500);
+      setTimeout(fadeOutAndClose, 2000);
     } else {
       console.error("[Vocabify] Save failed:", res);
     }
@@ -961,27 +966,44 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved }:
             </button>
           </div>
         ) : saved ? (
-          /* ── Saved confirmation with checkmark bounce ── */
-          <div className="flex items-center gap-2 py-1">
-            <div
-              className="flex items-center justify-center w-5 h-5 rounded-full"
-              style={{
-                background: "#ecfdf5",
-                animation: "checkmarkBounce 400ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
-              }}
-            >
-              <span style={{ color: "#059669", fontSize: "12px", lineHeight: 1 }}>✓</span>
+          /* ── Saved confirmation with checkmark bounce and XP ── */
+          <div className="flex items-center justify-between py-1">
+            <div className="flex items-center gap-2">
+              <div
+                className="flex items-center justify-center w-5 h-5 rounded-full"
+                style={{
+                  background: "#ecfdf5",
+                  animation: "checkmarkBounce 400ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
+                }}
+              >
+                <span style={{ color: "#059669", fontSize: "12px", lineHeight: 1 }}>✓</span>
+              </div>
+              <span
+                style={{
+                  fontSize: "13px",
+                  color: "#059669",
+                  fontWeight: 500,
+                  animation: "fadeInUp 250ms cubic-bezier(0.0, 0.0, 0.2, 1.0) 150ms both",
+                }}
+              >
+                Saved to vocabulary
+              </span>
             </div>
-            <span
-              style={{
-                fontSize: "13px",
-                color: "#059669",
-                fontWeight: 500,
-                animation: "fadeInUp 250ms cubic-bezier(0.0, 0.0, 0.2, 1.0) 150ms both",
-              }}
-            >
-              Saved to vocabulary
-            </span>
+            {xpEarned && (
+              <span
+                style={{
+                  fontSize: "12px",
+                  color: "#8b5cf6",
+                  fontWeight: 600,
+                  background: "#f3e8ff",
+                  padding: "2px 8px",
+                  borderRadius: "10px",
+                  animation: "xpPop 500ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
+                }}
+              >
+                +{xpEarned} XP
+              </span>
+            )}
           </div>
         ) : (
           <>

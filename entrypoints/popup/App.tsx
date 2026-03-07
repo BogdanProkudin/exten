@@ -2,15 +2,38 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { useEffect, useState, useCallback } from "react";
 
+interface GamificationStats {
+  currentStreak: number;
+  longestStreak: number;
+  totalXp: number;
+  level: number;
+  dailyXp: number;
+  dailyGoalXp: number;
+  dailyWordsLearned: number;
+  dailyReviewsDone: number;
+  xpProgress: { current: number; needed: number; progress: number };
+}
+
 export default function App() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [quickReviewActive, setQuickReviewActive] = useState(false);
+  const [gamificationStats, setGamificationStats] = useState<GamificationStats | null>(null);
 
   useEffect(() => {
     chrome.runtime.sendMessage({ type: "GET_DEVICE_ID" }).then((res) => {
       if (res?.deviceId) setDeviceId(res.deviceId);
     });
   }, []);
+
+  // Fetch gamification stats
+  useEffect(() => {
+    if (!deviceId) return;
+    chrome.runtime.sendMessage({ type: "GET_STATS" }).then((res) => {
+      if (res?.success && res.stats) {
+        setGamificationStats(res.stats);
+      }
+    });
+  }, [deviceId]);
 
   const stats = useQuery(
     api.words.stats,
@@ -84,12 +107,56 @@ export default function App() {
 
   return (
     <div className="w-[340px] p-4 bg-white">
-      <div className="flex items-center gap-2 mb-4">
-        <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-          <span className="text-white font-bold text-sm">V</span>
+      {/* Header with Streak */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+            <span className="text-white font-bold text-sm">V</span>
+          </div>
+          <h1 className="text-lg font-semibold text-gray-900">Vocabify</h1>
         </div>
-        <h1 className="text-lg font-semibold text-gray-900">Vocabify</h1>
+        {gamificationStats && gamificationStats.currentStreak > 0 && (
+          <div className="flex items-center gap-1 px-2 py-1 bg-orange-50 rounded-lg">
+            <span className="text-lg">🔥</span>
+            <span className="text-sm font-bold text-orange-600">{gamificationStats.currentStreak}</span>
+          </div>
+        )}
       </div>
+
+      {/* Gamification Stats Bar */}
+      {gamificationStats && (
+        <div className="mb-4 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                LVL {gamificationStats.level}
+              </span>
+              <span className="text-xs text-gray-600">
+                {gamificationStats.totalXp} XP
+              </span>
+            </div>
+            <span className="text-xs text-gray-500">
+              {gamificationStats.xpProgress.current}/{gamificationStats.xpProgress.needed} to next
+            </span>
+          </div>
+          {/* XP Progress Bar */}
+          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
+              style={{ width: `${gamificationStats.xpProgress.progress}%` }}
+            />
+          </div>
+          {/* Daily Progress */}
+          <div className="flex items-center justify-between mt-2 text-xs">
+            <span className="text-gray-600">
+              Today: {gamificationStats.dailyXp}/{gamificationStats.dailyGoalXp} XP
+            </span>
+            {gamificationStats.dailyXp >= gamificationStats.dailyGoalXp && (
+              <span className="text-green-600 font-medium">✓ Goal complete!</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {!stats ? (
         <div className="grid grid-cols-2 gap-2 mb-4">
