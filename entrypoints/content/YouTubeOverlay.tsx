@@ -1,9 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  getVideoElement,
-  observeCaptions,
-  tokenizeSubtitle,
-} from "../../src/lib/youtube";
+import { useEffect, useRef, useCallback } from "react";
+import { getVideoElement } from "../../src/lib/youtube";
 import { lemmatize } from "../../src/lib/lemmatize";
 
 interface YouTubeOverlayProps {
@@ -11,21 +7,16 @@ interface YouTubeOverlayProps {
   vocabLemmas?: Set<string>;
 }
 
+/**
+ * Makes YouTube's native caption words clickable for translation.
+ * Does NOT replace or hide YouTube's captions — just enhances them.
+ */
 export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps) {
-  const [currentText, setCurrentText] = useState<string | null>(null);
-  const [enabled, setEnabled] = useState(true);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const observerRef = useRef<MutationObserver | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Check if feature is enabled
-  useEffect(() => {
-    chrome.storage.sync.get("youtubeSubtitlesEnabled").then((data) => {
-      if (data.youtubeSubtitlesEnabled === false) {
-        setEnabled(false);
-      }
-    });
-  }, []);
-
-  // Get video element reference
+  // Get video reference
   useEffect(() => {
     let attempts = 0;
     const findVideo = () => {
@@ -39,159 +30,131 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
     findVideo();
   }, []);
 
-  // Observe YouTube's native captions
-  useEffect(() => {
-    if (!enabled) return;
+  const processSegment = useCallback((segment: Element) => {
+    // Skip if already processed
+    if (segment.getAttribute("data-vocabify") === "1") return;
+    segment.setAttribute("data-vocabify", "1");
 
-    console.log("[Vocabify] Starting caption observer...");
-    const cleanup = observeCaptions((text) => {
-      setCurrentText(text);
-    });
+    const text = segment.textContent || "";
+    if (!text.trim()) return;
 
-    return cleanup;
-  }, [enabled]);
+    // Split text into words and wrap each in a clickable span
+    const fragment = document.createDocumentFragment();
+    const words = text.split(/(\s+)/); // Keep whitespace
 
-  // Hide YouTube's native captions when we're showing ours
-  useEffect(() => {
-    if (!enabled || !currentText) return;
-
-    const style = document.createElement("style");
-    style.id = "vocabify-hide-captions";
-    style.textContent = `
-      .ytp-caption-window-container .ytp-caption-segment {
-        color: transparent !important;
+    for (const part of words) {
+      if (/^\s+$/.test(part)) {
+        // Whitespace — keep as-is
+        fragment.appendChild(document.createTextNode(part));
+        continue;
       }
-      .ytp-caption-window-container .caption-window {
-        background: transparent !important;
-      }
-    `;
 
-    // Only add if not already present
-    if (!document.getElementById("vocabify-hide-captions")) {
+      // Clean word for lookup
+      const cleanWord = part.replace(/[^\w'-]/g, "");
+      if (!cleanWord) {
+        fragment.appendChild(document.createTextNode(part));
+        continue;
+      }
+
+      const isKnown = vocabLemmas?.has(lemmatize(cleanWord)) || vocabLemmas?.has(cleanWord.toLowerCase());
+
+      const span = document.createElement("span");
+      span.textContent = part;
+      span.style.cssText = `
+        cursor: pointer;
+        padding: 1px 2px;
+        border-radius: 3px;
+        transition: background-color 0.15s ease;
+        ${isKnown ? "background-color: rgba(34, 197, 94, 0.3);" : "border-bottom: 1px dashed rgba(255,255,255,0.5);"}
+      `;
+
+      span.addEventListener("mouseenter", () => {
+        span.style.backgroundColor = isKnown
+          ? "rgba(34, 197, 94, 0.5)"
+          : "rgba(59, 130, 246, 0.5)";
+      });
+
+      span.addEventListener("mouseleave", () => {
+        span.style.backgroundColor = isKnown
+          ? "rgba(34, 197, 94, 0.3)"
+          : "transparent";
+      });
+
+      span.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+
+        const rect = span.getBoundingClientRect();
+        onWordClick(cleanWord, {
+          x: rect.left + rect.width / 2,
+          y: rect.top - 10,
+        });
+
+        // Pause video
+        if (videoRef.current && !videoRef.current.paused) {
+          videoRef.current.pause();
+        }
+      });
+
+      fragment.appendChild(span);
+    }
+
+    // Replace segment content with clickable words
+    segment.textContent = "";
+    segment.appendChild(fragment);
+  }, [onWordClick, vocabLemmas]);
+
+  const processAllSegments = useCallback(() => {
+    const segments = document.querySelectorAll(".ytp-caption-segment");
+    segments.forEach(processSegment);
+  }, [processSegment]);
+
+  // Observe caption changes
+  useEffect(() => {
+    console.log("[Vocabify] YouTube: watching for captions...");
+
+    // Inject CSS to make captions interactive
+    let style = document.getElementById("vocabify-yt-style");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "vocabify-yt-style";
+      style.textContent = `
+        .ytp-caption-segment {
+          cursor: default !important;
+          pointer-events: auto !important;
+        }
+        .ytp-caption-segment span:hover {
+          text-shadow: 0 0 8px rgba(255,255,255,0.5);
+        }
+      `;
       document.head.appendChild(style);
     }
 
+    // Watch for new caption segments
+    const container = document.querySelector(".html5-video-player") || document.body;
+
+    observerRef.current = new MutationObserver(() => {
+      processAllSegments();
+    });
+
+    observerRef.current.observe(container, {
+      childList: true,
+      subtree: true,
+    });
+
+    // Also poll since captions can change without triggering mutations
+    intervalRef.current = setInterval(processAllSegments, 500);
+
+    // Process any existing captions
+    processAllSegments();
+
     return () => {
-      document.getElementById("vocabify-hide-captions")?.remove();
+      observerRef.current?.disconnect();
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      document.getElementById("vocabify-yt-style")?.remove();
     };
-  }, [enabled, !!currentText]);
+  }, [processAllSegments]);
 
-  const handleWordClick = useCallback(
-    (word: string, e: React.MouseEvent<HTMLSpanElement>) => {
-      e.stopPropagation();
-      const rect = (e.target as HTMLElement).getBoundingClientRect();
-      onWordClick(word, { x: rect.left + rect.width / 2, y: rect.top - 10 });
-
-      // Pause video to let user read
-      if (videoRef.current && !videoRef.current.paused) {
-        videoRef.current.pause();
-      }
-    },
-    [onWordClick]
-  );
-
-  if (!enabled || !currentText) return null;
-
-  const words = tokenizeSubtitle(currentText);
-  if (words.length === 0) return null;
-
-  return (
-    <div
-      style={{
-        position: "absolute",
-        bottom: "80px",
-        left: "50%",
-        transform: "translateX(-50%)",
-        zIndex: 100,
-        pointerEvents: "auto",
-      }}
-    >
-      {/* Disable button — visible on hover */}
-      <button
-        onClick={() => {
-          setEnabled(false);
-          chrome.storage.sync.set({ youtubeSubtitlesEnabled: false });
-          document.getElementById("vocabify-hide-captions")?.remove();
-        }}
-        style={{
-          position: "absolute",
-          top: "-28px",
-          right: "0",
-          background: "rgba(0,0,0,0.6)",
-          color: "#fff",
-          border: "none",
-          borderRadius: "4px",
-          padding: "3px 6px",
-          fontSize: "10px",
-          cursor: "pointer",
-          opacity: 0,
-          transition: "opacity 0.2s",
-          pointerEvents: "auto",
-        }}
-        onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = "1"; }}
-        onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = "0"; }}
-        title="Disable Vocabify subtitles"
-      >
-        V ✕
-      </button>
-
-      {/* Interactive subtitle overlay */}
-      <div
-        style={{
-          background: "rgba(0, 0, 0, 0.8)",
-          color: "white",
-          padding: "10px 20px",
-          borderRadius: "8px",
-          fontSize: "20px",
-          lineHeight: 1.5,
-          maxWidth: "80vw",
-          textAlign: "center",
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-          pointerEvents: "auto",
-        }}
-        onMouseEnter={() => {
-          const btn = document.querySelector(".vocabify-yt-container button") as HTMLElement;
-          if (btn) btn.style.opacity = "1";
-        }}
-        onMouseLeave={() => {
-          const btn = document.querySelector(".vocabify-yt-container button") as HTMLElement;
-          if (btn) btn.style.opacity = "0";
-        }}
-      >
-        {words.map((word, i) => {
-          const isKnown = vocabLemmas?.has(lemmatize(word)) || vocabLemmas?.has(word.toLowerCase());
-          return (
-            <span key={`${i}-${word}`}>
-              <span
-                onClick={(e) => handleWordClick(word, e)}
-                style={{
-                  cursor: "pointer",
-                  padding: "2px 4px",
-                  borderRadius: "4px",
-                  transition: "background-color 0.15s ease",
-                  backgroundColor: isKnown ? "rgba(34, 197, 94, 0.3)" : "transparent",
-                  borderBottom: isKnown ? "none" : "1px dashed rgba(255,255,255,0.4)",
-                  pointerEvents: "auto",
-                }}
-                onMouseEnter={(e) => {
-                  (e.target as HTMLElement).style.backgroundColor = isKnown
-                    ? "rgba(34, 197, 94, 0.5)"
-                    : "rgba(59, 130, 246, 0.5)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.target as HTMLElement).style.backgroundColor = isKnown
-                    ? "rgba(34, 197, 94, 0.3)"
-                    : "transparent";
-                }}
-              >
-                {word}
-              </span>
-              {i < words.length - 1 && " "}
-            </span>
-          );
-        })}
-      </div>
-    </div>
-  );
+  // This component doesn't render anything — it enhances existing DOM
+  return null;
 }
