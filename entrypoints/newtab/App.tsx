@@ -139,11 +139,11 @@ function highlightWord(sentence: string, word: string): ReactNode {
 // --- Main App ---
 export default function App() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"review" | "vocabulary" | "hard">(() => {
+  const [activeTab, setActiveTab] = useState<"review" | "vocabulary" | "hard" | "stats">(() => {
     const hash = window.location.hash.replace("#", "");
-    if (hash === "review" || hash === "vocabulary" || hash === "hard") return hash;
+    if (hash === "review" || hash === "vocabulary" || hash === "hard" || hash === "stats") return hash;
     const params = new URLSearchParams(window.location.search);
-    return (params.get("tab") as "review" | "vocabulary" | "hard") || "review";
+    return (params.get("tab") as "review" | "vocabulary" | "hard" | "stats") || "review";
   });
 
   // Tab routing via hash
@@ -154,7 +154,7 @@ export default function App() {
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace("#", "");
-      if (hash === "review" || hash === "vocabulary" || hash === "hard") {
+      if (hash === "review" || hash === "vocabulary" || hash === "hard" || hash === "stats") {
         setActiveTab(hash);
       }
     };
@@ -200,6 +200,13 @@ export default function App() {
             >
               Hard Words
             </TabButton>
+            <TabButton
+              active={activeTab === "stats"}
+              onClick={() => setActiveTab("stats")}
+              id="stats"
+            >
+              Stats
+            </TabButton>
           </nav>
         </div>
       </header>
@@ -214,6 +221,8 @@ export default function App() {
                 <ReviewTab deviceId={deviceId} />
               ) : activeTab === "hard" ? (
                 <HardWordsTab deviceId={deviceId} />
+              ) : activeTab === "stats" ? (
+                <StatsTab deviceId={deviceId} />
               ) : (
                 <VocabularyTab deviceId={deviceId} />
               )}
@@ -1077,6 +1086,182 @@ function HardWordsTab({ deviceId }: { deviceId: string }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// --- Stats Tab ---
+
+interface GamificationStats {
+  currentStreak: number;
+  longestStreak: number;
+  totalXp: number;
+  level: number;
+  dailyXp: number;
+  dailyGoalXp: number;
+  dailyWordsLearned: number;
+  dailyReviewsDone: number;
+  totalWordsLearned: number;
+  totalReviewsDone: number;
+  xpProgress: { current: number; needed: number; progress: number };
+}
+
+interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  xp: number;
+  unlocked: boolean;
+  unlockedAt?: number;
+}
+
+function StatsTab({ deviceId }: { deviceId: string }) {
+  const gamificationStats = useQuery(api.gamification.getStats, { deviceId });
+  const achievements = useQuery(api.gamification.getAchievements, { deviceId });
+  const wordStats = useQuery(api.words.stats, { deviceId });
+
+  if (!gamificationStats || !achievements || !wordStats) {
+    return (
+      <div className="flex justify-center py-12">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  const stats = gamificationStats as GamificationStats;
+  const unlockedCount = achievements.filter((a: Achievement) => a.unlocked).length;
+
+  return (
+    <div className="space-y-6">
+      {/* Level & XP Card */}
+      <div className="bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl p-6 text-white">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-blue-100 text-sm font-medium">Level</p>
+            <p className="text-4xl font-bold">{stats.level}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-blue-100 text-sm font-medium">Total XP</p>
+            <p className="text-2xl font-bold">{stats.totalXp.toLocaleString()}</p>
+          </div>
+        </div>
+        
+        {/* XP Progress Bar */}
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-blue-100">Progress to Level {stats.level + 1}</span>
+            <span className="font-medium">{stats.xpProgress.current}/{stats.xpProgress.needed} XP</span>
+          </div>
+          <div className="h-3 bg-white/20 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-white rounded-full transition-all duration-500"
+              style={{ width: `${stats.xpProgress.progress}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Streak & Daily Goals */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">🔥</span>
+            <div>
+              <p className="text-sm text-gray-500">Current Streak</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.currentStreak} days</p>
+              <p className="text-xs text-gray-400">Best: {stats.longestStreak} days</p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">🎯</span>
+            <div>
+              <p className="text-sm text-gray-500">Daily Goal</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.dailyXp}/{stats.dailyGoalXp}</p>
+              {stats.dailyXp >= stats.dailyGoalXp ? (
+                <p className="text-xs text-green-600 font-medium">✓ Complete!</p>
+              ) : (
+                <p className="text-xs text-gray-400">{stats.dailyGoalXp - stats.dailyXp} XP to go</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Lifetime Stats */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">Lifetime Stats</h3>
+        <div className="grid grid-cols-4 gap-4 text-center">
+          <div>
+            <p className="text-2xl font-bold text-blue-600">{wordStats.total}</p>
+            <p className="text-xs text-gray-500">Words Saved</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-green-600">{wordStats.known}</p>
+            <p className="text-xs text-gray-500">Mastered</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-purple-600">{stats.totalReviewsDone}</p>
+            <p className="text-xs text-gray-500">Reviews</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-amber-600">{unlockedCount}</p>
+            <p className="text-xs text-gray-500">Achievements</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Today's Activity */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">Today's Activity</h3>
+        <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="p-3 bg-blue-50 rounded-lg">
+            <p className="text-xl font-bold text-blue-600">{stats.dailyWordsLearned}</p>
+            <p className="text-xs text-blue-700">Words Learned</p>
+          </div>
+          <div className="p-3 bg-green-50 rounded-lg">
+            <p className="text-xl font-bold text-green-600">{stats.dailyReviewsDone}</p>
+            <p className="text-xs text-green-700">Reviews Done</p>
+          </div>
+          <div className="p-3 bg-purple-50 rounded-lg">
+            <p className="text-xl font-bold text-purple-600">{stats.dailyXp}</p>
+            <p className="text-xs text-purple-700">XP Earned</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Achievements */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">
+          Achievements ({unlockedCount}/{achievements.length})
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {achievements.map((a: Achievement) => (
+            <div
+              key={a.id}
+              className={`p-3 rounded-xl border transition-all ${
+                a.unlocked
+                  ? "bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200"
+                  : "bg-gray-50 border-gray-200 opacity-50"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`text-xl ${a.unlocked ? "" : "grayscale"}`}>{a.icon}</span>
+                <span className={`text-xs font-medium ${a.unlocked ? "text-amber-600" : "text-gray-400"}`}>
+                  +{a.xp} XP
+                </span>
+              </div>
+              <p className={`text-sm font-semibold ${a.unlocked ? "text-gray-900" : "text-gray-400"}`}>
+                {a.name}
+              </p>
+              <p className="text-xs text-gray-500">{a.description}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

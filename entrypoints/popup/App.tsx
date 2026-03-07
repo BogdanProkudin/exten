@@ -14,10 +14,21 @@ interface GamificationStats {
   xpProgress: { current: number; needed: number; progress: number };
 }
 
+interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  xp: number;
+  unlocked: boolean;
+  unlockedAt?: number;
+}
+
 export default function App() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [quickReviewActive, setQuickReviewActive] = useState(false);
   const [gamificationStats, setGamificationStats] = useState<GamificationStats | null>(null);
+  const [newAchievement, setNewAchievement] = useState<Achievement | null>(null);
 
   useEffect(() => {
     chrome.runtime.sendMessage({ type: "GET_DEVICE_ID" }).then((res) => {
@@ -25,12 +36,25 @@ export default function App() {
     });
   }, []);
 
-  // Fetch gamification stats
+  // Fetch gamification stats and check for new achievements
   useEffect(() => {
     if (!deviceId) return;
     chrome.runtime.sendMessage({ type: "GET_STATS" }).then((res) => {
       if (res?.success && res.stats) {
         setGamificationStats(res.stats);
+      }
+    });
+    // Check for unnotified achievements
+    chrome.runtime.sendMessage({ type: "GET_ACHIEVEMENTS" }).then((res) => {
+      if (res?.success && res.achievements) {
+        const unnotified = res.achievements.find(
+          (a: Achievement) => a.unlocked && a.unlockedAt && Date.now() - a.unlockedAt < 60000
+        );
+        if (unnotified) {
+          setNewAchievement(unnotified);
+          // Auto-dismiss after 5s
+          setTimeout(() => setNewAchievement(null), 5000);
+        }
       }
     });
   }, [deviceId]);
@@ -112,6 +136,23 @@ export default function App() {
 
   return (
     <div className={`w-[340px] p-4 ${isDark ? "bg-gray-900 text-white" : "bg-white"}`}>
+      {/* Achievement Toast */}
+      {newAchievement && (
+        <div 
+          className="mb-3 p-3 bg-gradient-to-r from-yellow-400 to-orange-400 rounded-xl text-white animate-bounce-in"
+          onClick={() => setNewAchievement(null)}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">{newAchievement.icon}</span>
+            <div>
+              <p className="font-bold text-sm">🎉 Achievement Unlocked!</p>
+              <p className="text-xs font-medium">{newAchievement.name}</p>
+              <p className="text-xs opacity-90">+{newAchievement.xp} XP</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header with Streak */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
