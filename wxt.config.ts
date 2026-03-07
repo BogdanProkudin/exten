@@ -9,7 +9,7 @@ export default defineConfig({
   manifest: {
     name: "Vocabify",
     description: "Turn browsing into passive vocabulary learning",
-    permissions: ["storage", "alarms", "activeTab", "contextMenus"],
+    permissions: ["storage", "alarms", "activeTab", "contextMenus", "scripting"],
     commands: {
       "translate-selection": {
         suggested_key: {

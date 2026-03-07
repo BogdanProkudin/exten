@@ -42,6 +42,7 @@ type GetWordByLemmaMessage = { type: "GET_WORD_BY_LEMMA"; lemma: string; word?: 
 type ToggleHardMessage = { type: "TOGGLE_HARD"; wordId: string };
 type AddContextMessage = { type: "ADD_CONTEXT"; wordId: string; sentence: string; url: string };
 type DeleteWordMessage = { type: "DELETE_WORD"; wordId: string };
+type GetSubtitleUrlMessage = { type: "GET_SUBTITLE_URL"; lang: string };
 
 type AppMessage =
   | TranslateMessage
@@ -58,7 +59,8 @@ type AppMessage =
   | AddContextMessage
   | GetStatsMessage
   | GetAchievementsMessage
-  | DeleteWordMessage;
+  | DeleteWordMessage
+  | GetSubtitleUrlMessage;
 
 function isValidMessage(msg: unknown): msg is AppMessage {
   if (!msg || typeof msg !== "object" || !("type" in msg)) return false;
@@ -94,6 +96,8 @@ function isValidMessage(msg: unknown): msg is AppMessage {
       return true;
     case "DELETE_WORD":
       return typeof m.wordId === "string";
+    case "GET_SUBTITLE_URL":
+      return typeof m.lang === "string";
     default:
       return false;
   }
@@ -293,11 +297,55 @@ export default defineBackground(() => {
     }
   });
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isValidMessage(message)) {
       sendResponse({ error: "Unknown message type" });
       return false;
     }
+
+    // Handle GET_SUBTITLE_URL specially — needs sender.tab.id for executeScript
+    if (message.type === "GET_SUBTITLE_URL" && sender.tab?.id) {
+      const tabId = sender.tab.id;
+      const lang = message.lang;
+      chrome.scripting.executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: (lang: string) => {
+          try {
+            const response = (window as any).ytInitialPlayerResponse;
+            if (!response?.captions?.playerCaptionsTracklistRenderer?.captionTracks) {
+              return null;
+            }
+            const tracks = response.captions.playerCaptionsTracklistRenderer.captionTracks;
+            // Find best matching track
+            let manual = null as any, auto = null as any, anyEn = null as any;
+            for (const t of tracks) {
+              const lc = t.languageCode || "";
+              const isMatch = lc === lang || lc.startsWith(lang + "-");
+              const isEn = lc.startsWith("en");
+              const isManual = t.kind !== "asr";
+              if (isMatch && isManual && !manual) manual = t;
+              else if (isMatch && !auto) auto = t;
+              else if (isEn && isManual && !anyEn) anyEn = t;
+              else if (isEn && !anyEn) anyEn = t;
+            }
+            const best = manual || auto || anyEn;
+            return best?.baseUrl || null;
+          } catch {
+            return null;
+          }
+        },
+        args: [lang],
+      }).then((results) => {
+        const url = results?.[0]?.result || null;
+        sendResponse({ success: true, url });
+      }).catch((e) => {
+        console.log("[Vocabify] executeScript failed:", e);
+        sendResponse({ success: false, error: String(e) });
+      });
+      return true;
+    }
+
     handleMessage(message, convex, updateBadge).then(sendResponse);
     return true; // keep channel open for async response
   });
@@ -508,6 +556,17 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
         });
         updateBadge();
         return { success: true };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    }
+
+    case "GET_SUBTITLE_URL": {
+      try {
+        // Get the sender tab ID
+        // This is called from chrome.runtime.onMessage which provides sender info
+        // We need to handle this in the raw listener, not here
+        return { success: false, error: "Handled in raw listener" };
       } catch (e) {
         return { success: false, error: String(e) };
       }
