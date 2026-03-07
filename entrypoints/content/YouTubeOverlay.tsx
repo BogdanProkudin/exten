@@ -6,7 +6,6 @@ import {
   fetchSubtitles,
   getCurrentCue,
   tokenizeSubtitle,
-  observeYouTubeNavigation,
   type SubtitleCue,
 } from "../../src/lib/youtube";
 import { lemmatize } from "../../src/lib/lemmatize";
@@ -24,7 +23,6 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
   const [videoId, setVideoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Check if YouTube subtitles feature is enabled
   useEffect(() => {
@@ -35,21 +33,41 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
     });
   }, []);
 
-  // Initialize and observe navigation
+  // Initialize video ID
   useEffect(() => {
     if (!isYouTubeVideoPage()) return;
+    setVideoId(getVideoId());
+  }, []);
 
-    const currentId = getVideoId();
-    setVideoId(currentId);
+  // Listen for YouTube SPA navigation
+  useEffect(() => {
+    const handleNav = () => {
+      setTimeout(() => {
+        if (isYouTubeVideoPage()) {
+          const newId = getVideoId();
+          setVideoId((prev) => {
+            if (prev !== newId) {
+              setSubtitles([]);
+              setCurrentCue(null);
+              setError(null);
+            }
+            return newId;
+          });
+        } else {
+          setVideoId(null);
+          setSubtitles([]);
+          setCurrentCue(null);
+        }
+      }, 300);
+    };
 
-    const cleanup = observeYouTubeNavigation((newVideoId) => {
-      setVideoId(newVideoId);
-      setSubtitles([]);
-      setCurrentCue(null);
-      setError(null);
-    });
+    document.addEventListener("yt-navigate-finish", handleNav);
+    window.addEventListener("popstate", handleNav);
 
-    return cleanup;
+    return () => {
+      document.removeEventListener("yt-navigate-finish", handleNav);
+      window.removeEventListener("popstate", handleNav);
+    };
   }, []);
 
   // Fetch subtitles when video changes
@@ -62,18 +80,15 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
 
     (async () => {
       try {
-        // Try manual English subtitles first
         let subs = await fetchSubtitles(videoId, "en");
         if (cancelled) return;
 
         if (subs.length === 0) {
-          // Try auto-generated English
           subs = await fetchSubtitles(videoId, "en-US");
           if (cancelled) return;
         }
 
         if (subs.length === 0) {
-          // Try any English variant
           subs = await fetchSubtitles(videoId, "en-GB");
           if (cancelled) return;
         }
@@ -98,15 +113,20 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
   useEffect(() => {
     if (subtitles.length === 0 || !enabled) return;
 
-    // Video element may not exist immediately after SPA navigation — retry
     let video: HTMLVideoElement | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
 
+    const updateCue = () => {
+      if (!video) return;
+      const cue = getCurrentCue(subtitles, video.currentTime);
+      setCurrentCue(cue);
+    };
+
     const attach = () => {
       video = getVideoElement();
       if (!video) {
-        if (attempts++ < 10) {
+        if (attempts++ < 20) {
           retryTimer = setTimeout(attach, 500);
         }
         return;
@@ -114,12 +134,6 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
       videoRef.current = video;
       video.addEventListener("timeupdate", updateCue);
       video.addEventListener("seeking", updateCue);
-    };
-
-    const updateCue = () => {
-      if (!video) return;
-      const cue = getCurrentCue(subtitles, video.currentTime);
-      setCurrentCue(cue);
     };
 
     attach();
@@ -133,41 +147,13 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
     };
   }, [subtitles, enabled]);
 
-  // Position the overlay relative to the video player
-  const mountedRef = useRef(false);
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const video = getVideoElement();
-    if (!video) return;
-
-    const player = video.closest(".html5-video-player") as HTMLElement | null;
-    if (!player) return;
-
-    // Only move into player DOM once (not on every cue change)
-    if (mountedRef.current) return;
-
-    const existingOverlay = player.querySelector(".vocabify-yt-container");
-    if (existingOverlay) {
-      existingOverlay.remove();
-    }
-
-    containerRef.current.className = "vocabify-yt-container";
-    player.appendChild(containerRef.current);
-    mountedRef.current = true;
-
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [currentCue]);
-
   const handleWordClick = useCallback(
     (word: string, e: React.MouseEvent<HTMLSpanElement>) => {
       e.stopPropagation();
       const rect = (e.target as HTMLElement).getBoundingClientRect();
-      onWordClick(word, { x: rect.left, y: rect.bottom + 8 });
+      onWordClick(word, { x: rect.left + rect.width / 2, y: rect.top - 10 });
 
-      // Pause video briefly to let user read
+      // Pause video to let user read
       if (videoRef.current && !videoRef.current.paused) {
         videoRef.current.pause();
       }
@@ -175,7 +161,45 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
     [onWordClick]
   );
 
-  if (!enabled || !isYouTubeVideoPage() || !currentCue) {
+  if (!enabled || !videoId || !currentCue) {
+    // Show loading/error even without a cue
+    if (loading || error) {
+      return (
+        <div style={{
+          position: "absolute",
+          bottom: "80px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 100,
+          pointerEvents: "auto",
+        }}>
+          {loading && (
+            <div style={{
+              background: "rgba(0,0,0,0.7)",
+              color: "#fff",
+              padding: "6px 12px",
+              borderRadius: "6px",
+              fontSize: "12px",
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            }}>
+              Loading subtitles...
+            </div>
+          )}
+          {error && (
+            <div style={{
+              background: "rgba(239, 68, 68, 0.9)",
+              color: "#fff",
+              padding: "6px 12px",
+              borderRadius: "6px",
+              fontSize: "12px",
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            }}>
+              {error}
+            </div>
+          )}
+        </div>
+      );
+    }
     return null;
   }
 
@@ -183,13 +207,12 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
 
   return (
     <div
-      ref={containerRef}
       style={{
         position: "absolute",
         bottom: "80px",
         left: "50%",
         transform: "translateX(-50%)",
-        zIndex: 2147483640,
+        zIndex: 100,
         pointerEvents: "auto",
       }}
     >
@@ -201,17 +224,21 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
         }}
         style={{
           position: "absolute",
-          top: "-32px",
+          top: "-28px",
           right: "0",
           background: "rgba(0,0,0,0.6)",
           color: "#fff",
           border: "none",
           borderRadius: "4px",
-          padding: "4px 8px",
-          fontSize: "11px",
+          padding: "3px 6px",
+          fontSize: "10px",
           cursor: "pointer",
-          opacity: 0.7,
+          opacity: 0,
+          transition: "opacity 0.2s",
+          pointerEvents: "auto",
         }}
+        onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = "1"; }}
+        onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = "0"; }}
         title="Disable Vocabify subtitles"
       >
         V ✕
@@ -231,12 +258,22 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
           fontFamily:
             '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
           boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+          pointerEvents: "auto",
+        }}
+        onMouseEnter={() => {
+          // Show close button on hover
+          const btn = document.querySelector(".vocabify-yt-container button") as HTMLElement;
+          if (btn) btn.style.opacity = "1";
+        }}
+        onMouseLeave={() => {
+          const btn = document.querySelector(".vocabify-yt-container button") as HTMLElement;
+          if (btn) btn.style.opacity = "0";
         }}
       >
         {words.map((word, i) => {
           const isKnown = vocabLemmas?.has(lemmatize(word)) || vocabLemmas?.has(word.toLowerCase());
           return (
-            <span key={i}>
+            <span key={`${currentCue.start}-${i}`}>
               <span
                 onClick={(e) => handleWordClick(word, e)}
                 style={{
@@ -248,6 +285,7 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
                     ? "rgba(34, 197, 94, 0.3)"
                     : "transparent",
                   borderBottom: isKnown ? "none" : "1px dashed rgba(255,255,255,0.4)",
+                  pointerEvents: "auto",
                 }}
                 onMouseEnter={(e) => {
                   (e.target as HTMLElement).style.backgroundColor = isKnown
@@ -267,45 +305,6 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
           );
         })}
       </div>
-
-      {/* Loading/Error states */}
-      {loading && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "100%",
-            left: "50%",
-            transform: "translateX(-50%)",
-            marginBottom: "8px",
-            background: "rgba(0,0,0,0.7)",
-            color: "#fff",
-            padding: "6px 12px",
-            borderRadius: "6px",
-            fontSize: "12px",
-          }}
-        >
-          Loading subtitles...
-        </div>
-      )}
-
-      {error && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "100%",
-            left: "50%",
-            transform: "translateX(-50%)",
-            marginBottom: "8px",
-            background: "rgba(239, 68, 68, 0.9)",
-            color: "#fff",
-            padding: "6px 12px",
-            borderRadius: "6px",
-            fontSize: "12px",
-          }}
-        >
-          {error}
-        </div>
-      )}
     </div>
   );
 }

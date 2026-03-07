@@ -185,11 +185,11 @@ export default defineContentScript({
         // Small delay to let YouTube update the URL
         setTimeout(() => {
           if (isYouTubeVideoPage()) {
+            // Clean up old overlay first (new video = new player possibly)
+            cleanupYouTubeOverlay();
             initYouTubeOverlay();
-          } else if (youtubeUi) {
-            // Left a video page — clean up overlay
-            youtubeUi.remove();
-            youtubeUi = null;
+          } else {
+            cleanupYouTubeOverlay();
           }
         }, 300);
       };
@@ -198,42 +198,62 @@ export default defineContentScript({
       window.addEventListener("popstate", handleYtNav);
     }
     
-    // YouTube Overlay
-    let youtubeUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
+    // YouTube Overlay — injected directly into YouTube's player (not shadow DOM)
+    let youtubeContainer: HTMLDivElement | null = null;
+    let youtubeRoot: ReturnType<typeof ReactDOM.createRoot> | null = null;
     
     async function initYouTubeOverlay() {
-      if (youtubeUi) return;
+      if (youtubeContainer) return;
       
       // Check if YouTube subtitles are enabled
       const settings = await chrome.storage.sync.get("youtubeSubtitlesEnabled");
       if (settings.youtubeSubtitlesEnabled === false) return;
       
-      youtubeUi = await createShadowRootUi(ctx, {
-        name: "vocabify-youtube",
-        position: "overlay",
-        zIndex: 2147483640,
-        onMount(container) {
-          container.style.pointerEvents = "none";
-          container.style.fontSize = "16px";
-          const root = ReactDOM.createRoot(container);
-          root.render(
-            <YouTubeOverlay
-              vocabLemmas={vocabCacheLemmas ?? undefined}
-              onWordClick={(word, position) => {
-                // Trigger the floating popup
-                showPopupAt(word, position);
-              }}
-            />,
-          );
-          return root;
-        },
-        onRemove(root) {
-          root?.unmount();
-        },
-      });
+      // Wait for the video player to appear
+      let player: HTMLElement | null = null;
+      for (let i = 0; i < 30; i++) {
+        const video = document.querySelector("video.html5-main-video");
+        player = video?.closest(".html5-video-player") as HTMLElement | null;
+        if (player) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (!player) {
+        console.log("[Vocabify] YouTube player not found, skipping overlay");
+        return;
+      }
+
+      // Remove any existing overlay
+      player.querySelector(".vocabify-yt-container")?.remove();
+
+      // Create container directly in YouTube's player
+      youtubeContainer = document.createElement("div");
+      youtubeContainer.className = "vocabify-yt-container";
+      youtubeContainer.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:60;";
+      player.style.position = "relative"; // ensure positioning context
+      player.appendChild(youtubeContainer);
+
+      youtubeRoot = ReactDOM.createRoot(youtubeContainer);
+      youtubeRoot.render(
+        <YouTubeOverlay
+          vocabLemmas={vocabCacheLemmas ?? undefined}
+          onWordClick={(word, position) => {
+            showPopupAt(word, position);
+          }}
+        />,
+      );
       
-      youtubeUi.mount();
       console.log("[Vocabify] YouTube overlay initialized");
+    }
+    
+    function cleanupYouTubeOverlay() {
+      if (youtubeRoot) {
+        youtubeRoot.unmount();
+        youtubeRoot = null;
+      }
+      if (youtubeContainer) {
+        youtubeContainer.remove();
+        youtubeContainer = null;
+      }
     }
     
     // Helper to show popup at a specific position
