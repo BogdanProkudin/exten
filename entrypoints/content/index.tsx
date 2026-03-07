@@ -5,7 +5,9 @@ import { ReadingBadge } from "./ReadingBadge";
 import { ReadingPanel } from "./ReadingPanel";
 import { SimplifyPanel } from "./SimplifyPanel";
 import { AchievementToast } from "./AchievementToast";
+import { YouTubeOverlay } from "./YouTubeOverlay";
 import { analyzePageContent, type PageAnalysisResult, type VocabCache } from "../../src/lib/page-analyzer";
+import { isYouTubeVideoPage } from "../../src/lib/youtube";
 import "../../src/global.css";
 
 function isEditableTarget(el: HTMLElement): boolean {
@@ -157,10 +159,103 @@ export default defineContentScript({
         // Also include words (for pre-migration entries without lemma)
         for (const w of res.words as string[]) vocabCacheLemmas.add(w);
         console.log("[Vocabify] Cache loaded with lemmas:", Array.from(vocabCacheLemmas));
+        
+        // Initialize YouTube overlay if on YouTube
+        if (isYouTubeVideoPage()) {
+          initYouTubeOverlay();
+        }
       }
     }).catch((err) => {
       console.error("[Vocabify] GET_VOCAB_CACHE error:", err);
     });
+    
+    // YouTube Overlay
+    let youtubeUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
+    
+    async function initYouTubeOverlay() {
+      if (youtubeUi) return;
+      
+      // Check if YouTube subtitles are enabled
+      const settings = await chrome.storage.sync.get("youtubeSubtitlesEnabled");
+      if (settings.youtubeSubtitlesEnabled === false) return;
+      
+      youtubeUi = await createShadowRootUi(ctx, {
+        name: "vocabify-youtube",
+        position: "overlay",
+        zIndex: 2147483640,
+        onMount(container) {
+          container.style.pointerEvents = "none";
+          container.style.fontSize = "16px";
+          const root = ReactDOM.createRoot(container);
+          root.render(
+            <YouTubeOverlay
+              vocabLemmas={vocabCacheLemmas ?? undefined}
+              onWordClick={(word, position) => {
+                // Trigger the floating popup
+                showPopupAt(word, position);
+              }}
+            />,
+          );
+          return root;
+        },
+        onRemove(root) {
+          root?.unmount();
+        },
+      });
+      
+      youtubeUi.mount();
+      console.log("[Vocabify] YouTube overlay initialized");
+    }
+    
+    // Helper to show popup at a specific position
+    async function showPopupAt(word: string, position: { x: number; y: number }) {
+      if (popupUi) {
+        popupUi.remove();
+        popupUi = null;
+      }
+      
+      const scrollX = window.scrollX;
+      const scrollY = window.scrollY;
+      
+      popupUi = await createShadowRootUi(ctx, {
+        name: "vocabify-popup",
+        position: "overlay",
+        zIndex: 2147483647,
+        onMount(container) {
+          const shadowHost = (container.getRootNode() as ShadowRoot).host as HTMLElement;
+          shadowHost.style.position = "absolute";
+          container.style.pointerEvents = "none";
+          container.style.fontSize = "16px";
+          const root = ReactDOM.createRoot(container);
+          root.render(
+            <FloatingPopup
+              word={word.toLowerCase()}
+              position={{ x: position.x + scrollX, y: position.y + scrollY }}
+              onClose={() => {
+                popupUi?.remove();
+                popupUi = null;
+              }}
+              vocabLemmas={vocabCacheLemmas ?? undefined}
+              onSaved={(lemma) => {
+                if (!vocabCacheLemmas) vocabCacheLemmas = new Set();
+                vocabCacheLemmas.add(lemma);
+                vocabCacheLemmas.add(word.toLowerCase());
+              }}
+              onAchievement={(achievement) => {
+                showAchievementToast(achievement);
+              }}
+            />,
+          );
+          return root;
+        },
+        onRemove(root) {
+          root?.unmount();
+        },
+      });
+      
+      popupUi.mount();
+      popupCreatedAt = Date.now();
+    }
 
     // Load excluded sites and keep in sync
     let excludedDomains: string[] = [];

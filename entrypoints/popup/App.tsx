@@ -74,6 +74,7 @@ export default function App() {
   const [readingAssistantEnabled, setReadingAssistantEnabled] = useState(true);
   const [radarEnabled, setRadarEnabled] = useState(true);
   const [showDifficultyBadge, setShowDifficultyBadge] = useState(true);
+  const [youtubeSubtitlesEnabled, setYoutubeSubtitlesEnabled] = useState(true);
   const [targetLang, setTargetLang] = useState("ru");
   const [userLevel, setUserLevel] = useState("B1");
   const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
@@ -81,7 +82,7 @@ export default function App() {
   useEffect(() => {
     chrome.storage.sync.get([
       "dndUntil", "reviewIntervalMinutes", "excludedDomains", "maxToastsPerDay",
-      "readingAssistantEnabled", "radarEnabled", "showDifficultyBadge",
+      "readingAssistantEnabled", "radarEnabled", "showDifficultyBadge", "youtubeSubtitlesEnabled",
       "targetLang", "userLevel", "theme",
     ]).then((data: Record<string, unknown>) => {
       if (data.dndUntil) setDndUntil(data.dndUntil as number);
@@ -91,6 +92,7 @@ export default function App() {
       if (data.readingAssistantEnabled !== undefined) setReadingAssistantEnabled(data.readingAssistantEnabled as boolean);
       if (data.radarEnabled !== undefined) setRadarEnabled(data.radarEnabled as boolean);
       if (data.showDifficultyBadge !== undefined) setShowDifficultyBadge(data.showDifficultyBadge as boolean);
+      if (data.youtubeSubtitlesEnabled !== undefined) setYoutubeSubtitlesEnabled(data.youtubeSubtitlesEnabled as boolean);
       if (data.targetLang) setTargetLang(data.targetLang as string);
       if (data.userLevel) setUserLevel(data.userLevel as string);
       if (data.theme) setTheme(data.theme as "light" | "dark" | "system");
@@ -559,6 +561,20 @@ export default function App() {
             onChange={(v) => {
               setShowDifficultyBadge(v);
               chrome.storage.sync.set({ showDifficultyBadge: v });
+            }}
+          />
+
+          {/* YouTube Integration */}
+          <label className="text-xs font-medium text-gray-500 mb-2 block mt-3">
+            Video Learning
+          </label>
+          <SettingToggle
+            label="YouTube Subtitles"
+            description="Click words in YouTube subtitles to translate"
+            checked={youtubeSubtitlesEnabled}
+            onChange={(v) => {
+              setYoutubeSubtitlesEnabled(v);
+              chrome.storage.sync.set({ youtubeSubtitlesEnabled: v });
             }}
           />
         </div>
