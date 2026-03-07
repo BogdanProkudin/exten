@@ -52,12 +52,13 @@ export default function App() {
   const [showDifficultyBadge, setShowDifficultyBadge] = useState(true);
   const [targetLang, setTargetLang] = useState("ru");
   const [userLevel, setUserLevel] = useState("B1");
+  const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
 
   useEffect(() => {
     chrome.storage.sync.get([
       "dndUntil", "reviewIntervalMinutes", "excludedDomains", "maxToastsPerDay",
       "readingAssistantEnabled", "radarEnabled", "showDifficultyBadge",
-      "targetLang", "userLevel",
+      "targetLang", "userLevel", "theme",
     ]).then((data: Record<string, unknown>) => {
       if (data.dndUntil) setDndUntil(data.dndUntil as number);
       if (data.reviewIntervalMinutes) setReviewInterval(data.reviewIntervalMinutes as number);
@@ -68,6 +69,7 @@ export default function App() {
       if (data.showDifficultyBadge !== undefined) setShowDifficultyBadge(data.showDifficultyBadge as boolean);
       if (data.targetLang) setTargetLang(data.targetLang as string);
       if (data.userLevel) setUserLevel(data.userLevel as string);
+      if (data.theme) setTheme(data.theme as "light" | "dark" | "system");
     });
     // Get current tab domain
     chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
@@ -105,8 +107,11 @@ export default function App() {
     chrome.tabs.create({ url: tab ? `${url}#${tab}` : url });
   };
 
+  // Determine if dark mode should be active
+  const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+
   return (
-    <div className="w-[340px] p-4 bg-white">
+    <div className={`w-[340px] p-4 ${isDark ? "bg-gray-900 text-white" : "bg-white"}`}>
       {/* Header with Streak */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
@@ -372,14 +377,48 @@ export default function App() {
         </div>
       </details>
 
+      {/* Collapsible: Appearance */}
+      <details className={`border-t ${isDark ? "border-gray-700" : "border-gray-100"} pt-2 mb-2`}>
+        <summary className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} cursor-pointer select-none py-1`}>
+          Appearance
+        </summary>
+        <div className="mt-2 space-y-3">
+          <div>
+            <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} mb-1 block`}>
+              Theme
+            </label>
+            <div className="flex gap-1">
+              {(["light", "dark", "system"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => {
+                    setTheme(t);
+                    chrome.storage.sync.set({ theme: t });
+                  }}
+                  className={`flex-1 py-1.5 px-2 text-xs rounded-lg transition-colors ${
+                    theme === t
+                      ? "bg-blue-500 text-white"
+                      : isDark
+                        ? "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {t === "light" ? "☀️ Light" : t === "dark" ? "🌙 Dark" : "💻 System"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </details>
+
       {/* Collapsible: Site & Features */}
-      <details className="border-t border-gray-100 pt-2 mb-2">
-        <summary className="text-xs font-medium text-gray-500 cursor-pointer select-none py-1">
+      <details className={`border-t ${isDark ? "border-gray-700" : "border-gray-100"} pt-2 mb-2`}>
+        <summary className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} cursor-pointer select-none py-1`}>
           Site & Features
         </summary>
         <div className="mt-2">
           {/* Site Exclusion */}
-          <label className="text-xs font-medium text-gray-500 mb-2 block">
+          <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} mb-2 block`}>
             Excluded Sites
           </label>
           {currentDomain && !excludedDomains.includes(currentDomain) && (
