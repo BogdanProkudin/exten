@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { isSpeechRecognitionSupported, startListening, type SpeechResult } from "../../src/lib/speech-recognition";
 
 interface QuizWord {
   _id: Id<"words">;
@@ -33,6 +34,8 @@ export function QuizMode({ deviceId, onClose }: QuizModeProps) {
   const [quizType, setQuizType] = useState<"word-to-translation" | "translation-to-word">("word-to-translation");
   const [questionCount, setQuestionCount] = useState(10);
   const [started, setStarted] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [speechResult, setSpeechResult] = useState<SpeechResult | null>(null);
 
   // Generate quiz questions
   const generateQuestions = useCallback(() => {
@@ -98,9 +101,24 @@ export function QuizMode({ deviceId, onClose }: QuizModeProps) {
         setCurrentIndex((prev) => prev + 1);
         setSelectedAnswer(null);
         setIsCorrect(null);
+        setSpeechResult(null);
       }
     }, 1500);
   };
+
+  const handleSpeak = useCallback(async () => {
+    if (isListening || !questions[currentIndex]) return;
+    setIsListening(true);
+    setSpeechResult(null);
+    try {
+      const result = await startListening(questions[currentIndex].word.word);
+      setSpeechResult(result);
+    } catch (e) {
+      setSpeechResult({ transcript: (e as Error).message, confidence: 0, isMatch: false });
+    } finally {
+      setIsListening(false);
+    }
+  }, [isListening, questions, currentIndex]);
 
   const currentQuestion = questions[currentIndex];
 
@@ -310,6 +328,25 @@ export function QuizMode({ deviceId, onClose }: QuizModeProps) {
             isCorrect ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
           }`}>
             {isCorrect ? "✓ Correct!" : `✗ The answer was: ${currentQuestion.options[currentQuestion.correctIndex]}`}
+          </div>
+        )}
+
+        {/* Pronunciation practice */}
+        {selectedAnswer !== null && isSpeechRecognitionSupported() && (
+          <div className="mt-3 text-center">
+            <button
+              onClick={handleSpeak}
+              disabled={isListening}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                isListening ? "bg-blue-100 text-blue-600" :
+                speechResult ? (speechResult.isMatch ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700") :
+                "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              {isListening ? "🎙️ Listening..." :
+               speechResult ? (speechResult.isMatch ? `✅ "${speechResult.transcript}"` : `❌ "${speechResult.transcript}"`) :
+               "🎤 Say this word"}
+            </button>
           </div>
         )}
       </div>

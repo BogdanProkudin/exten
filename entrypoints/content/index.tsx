@@ -303,12 +303,20 @@ export default defineContentScript({
       const selection = window.getSelection();
       const text = selection?.toString().trim();
 
-      if (!text || text.includes(" ") || text.length < 2 || text.length > 40) {
-        return;
-      }
+      if (!text || text.length < 2 || text.length > 80) return;
 
-      // Only match words (letters, hyphens, apostrophes)
-      if (!/^[a-zA-Z'-]+$/.test(text)) return;
+      // Single word: must be letters only
+      const isSingleWord = !text.includes(" ") && /^[a-zA-Z'-]+$/.test(text);
+      // Multi-word: check if it's a known phrase (2-4 words)
+      const isPhrase = text.includes(" ") && text.split(/\s+/).length <= 4;
+
+      if (!isSingleWord && !isPhrase) return;
+
+      // For phrases, detect and only show popup if it's a known phrase
+      if (isPhrase) {
+        const { detectPhrase } = await import("../../src/lib/phrase-detector");
+        if (!detectPhrase(text)) return;
+      }
 
       // Don't re-create if popup is already open
       if (popupUi) return;
@@ -391,6 +399,91 @@ export default defineContentScript({
         popupUi = null;
       }
     });
+
+    // --- Context menu & keyboard shortcut handlers ---
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.type === "CONTEXT_MENU_TRANSLATE" && message.word) {
+        // Get cursor position from last known mouse position
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          showPopupAt(message.word.toLowerCase(), {
+            x: rect.left + rect.width / 2,
+            y: rect.bottom + 6,
+          });
+        } else {
+          // Fallback: center of viewport
+          showPopupAt(message.word.toLowerCase(), {
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 3,
+          });
+        }
+      } else if (message.type === "CONTEXT_MENU_SAVED" && message.word) {
+        // Show a brief save confirmation toast
+        showSaveConfirmation(message.word, message.translation);
+      } else if (message.type === "KEYBOARD_TRANSLATE") {
+        // Translate currently selected text
+        const selection = window.getSelection();
+        const text = selection?.toString().trim();
+        if (text && text.length >= 2 && text.length <= 40 && /^[a-zA-Z'-]+$/.test(text)) {
+          const range = selection!.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          showPopupAt(text.toLowerCase(), {
+            x: rect.left + rect.width / 2,
+            y: rect.bottom + 6,
+          });
+        }
+      }
+    });
+
+    // Brief save confirmation for context menu "Save to Vocabify"
+    async function showSaveConfirmation(word: string, translation: string) {
+      const confirmUi = await createShadowRootUi(ctx, {
+        name: "vocabify-confirm",
+        position: "overlay",
+        zIndex: 2147483647,
+        onMount(container) {
+          container.style.pointerEvents = "none";
+          container.style.fontSize = "16px";
+          const root = ReactDOM.createRoot(container);
+          root.render(
+            <div style={{
+              position: "fixed",
+              bottom: "20px",
+              right: "20px",
+              background: "#fff",
+              border: "1px solid #e5e7eb",
+              borderRadius: "12px",
+              padding: "12px 16px",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+              pointerEvents: "auto",
+              animation: "fadeInUp 250ms ease both",
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              maxWidth: "280px",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ color: "#22c55e", fontSize: "18px" }}>&#10003;</span>
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#111" }}>
+                    Saved "{word}"
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#6b7280" }}>
+                    {translation}
+                  </div>
+                </div>
+              </div>
+            </div>,
+          );
+          return root;
+        },
+        onRemove(root) {
+          root?.unmount();
+        },
+      });
+      confirmUi.mount();
+      setTimeout(() => confirmUi.remove(), 3000);
+    }
 
     // --- Review Toast (triggered by background) ---
     chrome.runtime.onMessage.addListener((message) => {

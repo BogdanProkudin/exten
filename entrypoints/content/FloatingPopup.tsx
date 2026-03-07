@@ -10,6 +10,8 @@ import {
 import { shouldShowTip, markTipSeen, dismissTipForever, incrementCounter } from "../../src/lib/tips";
 import { lemmatize } from "../../src/lib/lemmatize";
 import { computeStrength } from "../../src/lib/memory-strength";
+import { getWordEnrichment, type WordEnrichment } from "../../src/lib/word-enrichment";
+import { getPhrasalVerbs } from "../../src/lib/phrase-detector";
 
 interface SavedWordData {
   _id: string;
@@ -49,6 +51,9 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [xpEarned, setXpEarned] = useState<number | null>(null);
+  const [savedWordId, setSavedWordId] = useState<string | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const [undone, setUndone] = useState(false);
   const [fading, setFading] = useState(false);
   const [visible, setVisible] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -63,6 +68,10 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
   const [contextTipVisible, setContextTipVisible] = useState(false);
   const [scanTipVisible, setScanTipVisible] = useState(false);
   const [explainTipVisible, setExplainTipVisible] = useState(false);
+
+  // Word enrichment state
+  const [enrichment, setEnrichment] = useState<WordEnrichment | null>(null);
+  const [enrichmentExpanded, setEnrichmentExpanded] = useState(false);
 
   // Smart context capture state
   const [candidates, setCandidates] = useState<CandidateSentence[] | null>(null);
@@ -166,6 +175,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
       .then((res) => {
         if (res?.success) {
           setTranslation(res.translation);
+          getWordEnrichment(word).then(setEnrichment).catch(() => {});
         } else {
           const msg = res?.error || "Translation failed";
           setError(msg.includes("timed out") ? "Translation timed out" : msg);
@@ -263,6 +273,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
     if (res?.success) {
       console.log("[Vocabify] Word saved successfully:", { word, lemma });
       setSaved(true);
+      if (res.wordId) setSavedWordId(res.wordId);
       // Show XP earned
       if (res.xp?.xpAwarded) {
         setXpEarned(res.xp.xpAwarded);
@@ -279,7 +290,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
       incrementCounter("wordsSaved");
       if (withContext) incrementCounter("saveContextUsed", true);
       onSaved?.(lemma);
-      setTimeout(fadeOutAndClose, 2000);
+      setTimeout(fadeOutAndClose, 5000); // Extended for undo window
     } else {
       console.error("[Vocabify] Save failed:", res);
       setError(res?.error || "Failed to save word");
@@ -986,43 +997,78 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
             </button>
           </div>
         ) : saved ? (
-          /* ── Saved confirmation with checkmark bounce and XP ── */
-          <div className="flex items-center justify-between py-1">
-            <div className="flex items-center gap-2">
-              <div
-                className="flex items-center justify-center w-5 h-5 rounded-full"
-                style={{
-                  background: "#ecfdf5",
-                  animation: "checkmarkBounce 400ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
-                }}
-              >
-                <span style={{ color: "#059669", fontSize: "12px", lineHeight: 1 }}>✓</span>
+          /* ── Saved confirmation with checkmark bounce, XP, and Undo ── */
+          <div className="py-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div
+                  className="flex items-center justify-center w-5 h-5 rounded-full"
+                  style={{
+                    background: undone ? "#fef2f2" : "#ecfdf5",
+                    animation: "checkmarkBounce 400ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
+                  }}
+                >
+                  <span style={{ color: undone ? "#dc2626" : "#059669", fontSize: "12px", lineHeight: 1 }}>
+                    {undone ? "↩" : "✓"}
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontSize: "13px",
+                    color: undone ? "#dc2626" : "#059669",
+                    fontWeight: 500,
+                    animation: "fadeInUp 250ms cubic-bezier(0.0, 0.0, 0.2, 1.0) 150ms both",
+                  }}
+                >
+                  {undone ? "Removed from vocabulary" : "Saved to vocabulary"}
+                </span>
               </div>
-              <span
-                style={{
-                  fontSize: "13px",
-                  color: "#059669",
-                  fontWeight: 500,
-                  animation: "fadeInUp 250ms cubic-bezier(0.0, 0.0, 0.2, 1.0) 150ms both",
-                }}
-              >
-                Saved to vocabulary
-              </span>
+              {xpEarned && !undone && (
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: "#8b5cf6",
+                    fontWeight: 600,
+                    background: "#f3e8ff",
+                    padding: "2px 8px",
+                    borderRadius: "10px",
+                    animation: "xpPop 500ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
+                  }}
+                >
+                  +{xpEarned} XP
+                </span>
+              )}
             </div>
-            {xpEarned && (
-              <span
+            {savedWordId && !undone && (
+              <button
+                onClick={async () => {
+                  if (undoing) return;
+                  setUndoing(true);
+                  const res = await chrome.runtime.sendMessage({
+                    type: "DELETE_WORD",
+                    wordId: savedWordId,
+                  });
+                  setUndoing(false);
+                  if (res?.success) {
+                    setUndone(true);
+                    setTimeout(fadeOutAndClose, 1500);
+                  }
+                }}
+                disabled={undoing}
                 style={{
-                  fontSize: "12px",
-                  color: "#8b5cf6",
-                  fontWeight: 600,
-                  background: "#f3e8ff",
-                  padding: "2px 8px",
-                  borderRadius: "10px",
-                  animation: "xpPop 500ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
+                  marginTop: "6px",
+                  background: "none",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "6px",
+                  padding: "3px 10px",
+                  fontSize: "11px",
+                  color: undoing ? "#9ca3af" : "#6b7280",
+                  cursor: undoing ? "default" : "pointer",
+                  transition: "all 150ms",
                 }}
               >
-                +{xpEarned} XP
-              </span>
+                {undoing ? "Undoing..." : "Undo"}
+              </button>
             )}
           </div>
         ) : (
@@ -1033,6 +1079,52 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
             >
               {translation}
             </p>
+
+            {/* ── Related Words (enrichment) ── */}
+            {enrichment && (enrichment.synonyms.length > 0 || enrichment.antonyms.length > 0) && (
+              <div style={{ marginTop: "8px" }}>
+                <button
+                  onClick={() => setEnrichmentExpanded(!enrichmentExpanded)}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    fontSize: "11px", color: "#6b7280", display: "flex",
+                    alignItems: "center", gap: "4px", padding: "2px 0",
+                  }}
+                >
+                  <span style={{ transform: enrichmentExpanded ? "rotate(90deg)" : "rotate(0)", transition: "transform 150ms", display: "inline-block" }}>&#9654;</span>
+                  Related Words
+                  {enrichment.phonetic && <span style={{ color: "#9ca3af", marginLeft: "4px" }}>{enrichment.phonetic}</span>}
+                </button>
+                {enrichmentExpanded && (
+                  <div style={{ marginTop: "6px", padding: "8px", background: "#f0fdf4", borderRadius: "6px", fontSize: "11px", animation: "fadeInUp 200ms ease both" }}>
+                    {enrichment.synonyms.length > 0 && (
+                      <div style={{ marginBottom: "4px" }}>
+                        <span style={{ fontWeight: 600, color: "#166534" }}>Synonyms: </span>
+                        <span style={{ color: "#15803d" }}>{enrichment.synonyms.slice(0, 5).join(", ")}</span>
+                      </div>
+                    )}
+                    {enrichment.antonyms.length > 0 && (
+                      <div style={{ marginBottom: "4px" }}>
+                        <span style={{ fontWeight: 600, color: "#991b1b" }}>Antonyms: </span>
+                        <span style={{ color: "#dc2626" }}>{enrichment.antonyms.slice(0, 5).join(", ")}</span>
+                      </div>
+                    )}
+                    {enrichment.definitions.length > 0 && (
+                      <div style={{ marginTop: "4px", paddingTop: "4px", borderTop: "1px solid #dcfce7" }}>
+                        <span style={{ fontWeight: 600, color: "#374151" }}>{enrichment.definitions[0].partOfSpeech}: </span>
+                        <span style={{ color: "#4b5563" }}>{enrichment.definitions[0].definition}</span>
+                      </div>
+                    )}
+                    {getPhrasalVerbs(lemma).length > 0 && (
+                      <div style={{ marginTop: "4px", fontSize: "11px", color: "#6b7280" }}>
+                        <span style={{ fontWeight: 600 }}>Phrasal verbs: </span>
+                        {getPhrasalVerbs(lemma).slice(0, 4).join(", ")}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── Smart example candidates ── */}
             {loadingCandidates ? (

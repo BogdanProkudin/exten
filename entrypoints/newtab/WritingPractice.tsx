@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { isSpeechRecognitionSupported, startListening, type SpeechResult } from "../../src/lib/speech-recognition";
 
 interface WritingPracticeProps {
   deviceId: string;
@@ -19,9 +20,11 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
   const [result, setResult] = useState<"correct" | "incorrect" | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0 });
   const [started, setStarted] = useState(false);
-  const [mode, setMode] = useState<"translation-to-word" | "word-to-translation">("translation-to-word");
+  const [mode, setMode] = useState<"translation-to-word" | "word-to-translation" | "speak">("translation-to-word");
   const [questionCount, setQuestionCount] = useState(10);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [speechResult, setSpeechResult] = useState<SpeechResult | null>(null);
 
   const startPractice = useCallback(() => {
     if (!allWords || allWords.length === 0) return;
@@ -34,7 +37,7 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
   }, [allWords, questionCount]);
 
   const currentWord = words?.[currentIndex];
-  const isComplete = started && currentIndex >= words.length;
+  const isComplete = started && currentIndex >= (words?.length ?? 0);
 
   const checkAnswer = useCallback(async () => {
     if (!currentWord || showAnswer) return;
@@ -70,6 +73,7 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
     setUserInput("");
     setShowAnswer(false);
     setResult(null);
+    setSpeechResult(null);
     setTimeout(() => inputRef.current?.focus(), 100);
   }, []);
 
@@ -82,6 +86,39 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
       }
     }
   };
+
+  const handleSpeak = useCallback(async () => {
+    if (isListening || !currentWord || showAnswer) return;
+    setIsListening(true);
+    setSpeechResult(null);
+    try {
+      const result = await startListening(currentWord.word);
+      setSpeechResult(result);
+
+      // Auto-check: treat speech result like an answer
+      const isCorrect = result.isMatch;
+      setResult(isCorrect ? "correct" : "incorrect");
+      setShowAnswer(true);
+      setScore((prev) => ({
+        correct: prev.correct + (isCorrect ? 1 : 0),
+        total: prev.total + 1,
+      }));
+
+      try {
+        await updateReview({
+          id: currentWord._id,
+          deviceId,
+          remembered: isCorrect,
+        });
+      } catch (e) {
+        console.error("[Vocabify] Speak mode review failed:", e);
+      }
+    } catch (e) {
+      setSpeechResult({ transcript: (e as Error).message, confidence: 0, isMatch: false });
+    } finally {
+      setIsListening(false);
+    }
+  }, [isListening, currentWord, showAnswer, updateReview, deviceId]);
 
   // Not enough words
   if (allWords && allWords.length === 0) {
@@ -132,7 +169,7 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
           <div className="space-y-4 mb-6">
             <div>
               <label className="text-sm font-medium text-gray-700 mb-2 block">Practice Type</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => setMode("translation-to-word")}
                   className={`p-3 rounded-xl text-sm font-medium transition-all ${
@@ -152,6 +189,16 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
                   }`}
                 >
                   Word → Translation
+                </button>
+                <button
+                  onClick={() => setMode("speak")}
+                  className={`p-3 rounded-xl text-sm font-medium transition-all ${
+                    mode === "speak"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  🎤 Speak Mode
                 </button>
               </div>
             </div>
@@ -226,7 +273,7 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm text-gray-500">
-            {currentIndex + 1} of {words.length}
+            {currentIndex + 1} of {words?.length ?? 0}
           </span>
           <span className="text-sm font-medium text-blue-500">
             {score.correct}/{score.total} correct
@@ -237,42 +284,63 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
         <div className="h-2 bg-gray-200 rounded-full mb-6 overflow-hidden">
           <div
             className="h-full bg-blue-500 transition-all duration-300"
-            style={{ width: `${((currentIndex + 1) / words.length) * 100}%` }}
+            style={{ width: `${((currentIndex + 1) / (words?.length || 1)) * 100}%` }}
           />
         </div>
 
         {/* Prompt */}
         <div className="text-center mb-6">
           <p className="text-sm text-gray-500 mb-2">
-            {mode === "translation-to-word" ? "Type the English word for:" : "Type the translation for:"}
+            {mode === "speak" ? "Say this word:" : mode === "translation-to-word" ? "Type the English word for:" : "Type the translation for:"}
           </p>
           <h2 className="text-2xl font-bold text-gray-900">
-            {mode === "translation-to-word" ? currentWord?.translation : currentWord?.word}
+            {mode === "speak" ? currentWord?.word : mode === "translation-to-word" ? currentWord?.translation : currentWord?.word}
           </h2>
         </div>
 
         {/* Input */}
-        <div className="mb-4">
-          <input
-            ref={inputRef}
-            type="text"
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={showAnswer}
-            placeholder="Type your answer..."
-            className={`w-full p-4 text-lg text-center rounded-xl border-2 transition-all focus:outline-none ${
-              showAnswer
-                ? result === "correct"
-                  ? "border-green-500 bg-green-50"
-                  : "border-red-500 bg-red-50"
-                : "border-gray-200 focus:border-blue-500"
-            }`}
-            autoComplete="off"
-            autoCapitalize="off"
-            spellCheck={false}
-          />
-        </div>
+        {mode === "speak" ? (
+          <div className="mb-4 text-center">
+            <button
+              onClick={handleSpeak}
+              disabled={isListening || showAnswer}
+              className={`w-20 h-20 rounded-full text-3xl transition-all ${
+                isListening ? "bg-blue-100 text-blue-600 animate-pulse" :
+                showAnswer ? (result === "correct" ? "bg-green-100" : "bg-red-100") :
+                "bg-gray-100 hover:bg-gray-200"
+              }`}
+            >
+              {isListening ? "🎙️" : "🎤"}
+            </button>
+            {speechResult && (
+              <p className={`mt-2 text-sm ${speechResult.isMatch ? "text-green-600" : "text-red-600"}`}>
+                You said: "{speechResult.transcript}"
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="mb-4">
+            <input
+              ref={inputRef}
+              type="text"
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={showAnswer}
+              placeholder="Type your answer..."
+              className={`w-full p-4 text-lg text-center rounded-xl border-2 transition-all focus:outline-none ${
+                showAnswer
+                  ? result === "correct"
+                    ? "border-green-500 bg-green-50"
+                    : "border-red-500 bg-red-50"
+                  : "border-gray-200 focus:border-blue-500"
+              }`}
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+            />
+          </div>
+        )}
 
         {/* Feedback / Action */}
         {showAnswer ? (
@@ -285,7 +353,7 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
               ) : (
                 <span>
                   ✗ Correct answer: <strong>
-                    {mode === "translation-to-word" ? currentWord?.word : currentWord?.translation}
+                    {mode === "speak" ? currentWord?.word : mode === "translation-to-word" ? currentWord?.word : currentWord?.translation}
                   </strong>
                 </span>
               )}
@@ -294,10 +362,10 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
               onClick={nextWord}
               className="w-full py-3 bg-blue-500 text-white font-medium rounded-xl hover:bg-blue-600 transition-colors"
             >
-              {currentIndex + 1 < words.length ? "Next Word" : "See Results"}
+              {currentIndex + 1 < (words?.length ?? 0) ? "Next Word" : "See Results"}
             </button>
           </div>
-        ) : (
+        ) : mode !== "speak" ? (
           <button
             onClick={checkAnswer}
             disabled={!userInput.trim()}
@@ -305,11 +373,13 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
           >
             Check Answer
           </button>
-        )}
+        ) : null}
 
-        <p className="text-xs text-gray-500 text-center mt-3">
-          Press Enter to {showAnswer ? "continue" : "check"}
-        </p>
+        {mode !== "speak" && (
+          <p className="text-xs text-gray-500 text-center mt-3">
+            Press Enter to {showAnswer ? "continue" : "check"}
+          </p>
+        )}
       </div>
     </div>
   );

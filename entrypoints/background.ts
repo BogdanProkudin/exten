@@ -41,6 +41,7 @@ type CheckProMessage = { type: "CHECK_PRO" };
 type GetWordByLemmaMessage = { type: "GET_WORD_BY_LEMMA"; lemma: string; word?: string };
 type ToggleHardMessage = { type: "TOGGLE_HARD"; wordId: string };
 type AddContextMessage = { type: "ADD_CONTEXT"; wordId: string; sentence: string; url: string };
+type DeleteWordMessage = { type: "DELETE_WORD"; wordId: string };
 
 type AppMessage =
   | TranslateMessage
@@ -56,7 +57,8 @@ type AppMessage =
   | ToggleHardMessage
   | AddContextMessage
   | GetStatsMessage
-  | GetAchievementsMessage;
+  | GetAchievementsMessage
+  | DeleteWordMessage;
 
 function isValidMessage(msg: unknown): msg is AppMessage {
   if (!msg || typeof msg !== "object" || !("type" in msg)) return false;
@@ -90,6 +92,8 @@ function isValidMessage(msg: unknown): msg is AppMessage {
       return true;
     case "GET_ACHIEVEMENTS":
       return true;
+    case "DELETE_WORD":
+      return typeof m.wordId === "string";
     default:
       return false;
   }
@@ -112,10 +116,93 @@ export default defineBackground(() => {
     import.meta.env.VITE_CONVEX_URL as string,
   );
 
+  // --- Update word count badge ---
+  async function updateBadge() {
+    try {
+      const deviceId = await getDeviceId();
+      const stats = await convex.query(api.words.stats, { deviceId });
+      const count = stats.total;
+      chrome.action.setBadgeText({ text: count > 0 ? String(count) : "" });
+      chrome.action.setBadgeBackgroundColor({ color: "#3b82f6" });
+    } catch {
+      // Silently fail — badge is non-critical
+    }
+  }
+
   chrome.runtime.onInstalled.addListener(async () => {
     await getDeviceId();
     chrome.alarms.create(REVIEW_ALARM, { periodInMinutes: 30 });
     chrome.alarms.create(RADAR_DECAY_ALARM, { periodInMinutes: 60 * 24 });
+
+    // Create context menus
+    chrome.contextMenus.create({
+      id: "vocabify-translate",
+      title: "Translate with Vocabify",
+      contexts: ["selection"],
+    });
+    chrome.contextMenus.create({
+      id: "vocabify-save",
+      title: "Save to Vocabify",
+      contexts: ["selection"],
+    });
+
+    // Set initial badge
+    updateBadge();
+  });
+
+  // --- Context menu handler ---
+  chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (!tab?.id || !info.selectionText) return;
+    const text = info.selectionText.trim();
+    if (!text || text.length < 2 || text.length > 40) return;
+
+    try {
+      if (info.menuItemId === "vocabify-translate") {
+        await chrome.tabs.sendMessage(tab.id, {
+          type: "CONTEXT_MENU_TRANSLATE",
+          word: text,
+        });
+      } else if (info.menuItemId === "vocabify-save") {
+        // Translate then save
+        const deviceId = await getDeviceId();
+        const translation = await translateWord(text);
+        await convex.mutation(api.words.add, {
+          deviceId,
+          word: text,
+          translation,
+          example: "",
+          sourceUrl: tab.url || "",
+        });
+        logEvent(convex, deviceId, "word_saved", text);
+        const xpResult = await convex.mutation(api.gamification.awardXp, {
+          deviceId,
+          action: "word_saved",
+        });
+        updateBadge();
+        // Notify content script of successful save
+        await chrome.tabs.sendMessage(tab.id, {
+          type: "CONTEXT_MENU_SAVED",
+          word: text,
+          translation,
+          xp: xpResult,
+        });
+      }
+    } catch (e) {
+      console.error("[Vocabify] Context menu error:", e);
+    }
+  });
+
+  // --- Keyboard shortcut handler ---
+  chrome.commands.onCommand.addListener(async (command) => {
+    if (command !== "translate-selection") return;
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = tabs[0];
+      if (!tab?.id) return;
+      await chrome.tabs.sendMessage(tab.id, { type: "KEYBOARD_TRANSLATE" });
+    } catch {
+      // Content script not available
+    }
   });
 
   chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -208,12 +295,12 @@ export default defineBackground(() => {
       sendResponse({ error: "Unknown message type" });
       return false;
     }
-    handleMessage(message, convex).then(sendResponse);
+    handleMessage(message, convex, updateBadge).then(sendResponse);
     return true; // keep channel open for async response
   });
 });
 
-async function handleMessage(message: AppMessage, convex: ConvexHttpClient) {
+async function handleMessage(message: AppMessage, convex: ConvexHttpClient, updateBadge: () => Promise<void>) {
   const deviceId = await getDeviceId();
 
   switch (message.type) {
@@ -229,7 +316,7 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient) {
 
     case "SAVE_WORD": {
       try {
-        await convex.mutation(api.words.add, {
+        const wordId = await convex.mutation(api.words.add, {
           deviceId,
           word: message.word,
           translation: message.translation,
@@ -244,7 +331,8 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient) {
           deviceId,
           action: "word_saved",
         });
-        return { success: true, xp: xpResult };
+        updateBadge();
+        return { success: true, xp: xpResult, wordId };
       } catch (e) {
         return { success: false, error: String(e) };
       }
@@ -406,6 +494,19 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient) {
       try {
         const achievements = await convex.query(api.gamification.getAchievements, { deviceId });
         return { success: true, achievements };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    }
+
+    case "DELETE_WORD": {
+      try {
+        await convex.mutation(api.words.remove, {
+          id: message.wordId as Id<"words">,
+          deviceId,
+        });
+        updateBadge();
+        return { success: true };
       } catch (e) {
         return { success: false, error: String(e) };
       }

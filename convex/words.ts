@@ -184,7 +184,7 @@ export const add = mutation({
       }
     }
 
-    const lemma = lemmatize(word);
+    const lemma = word.includes(" ") ? word.toLowerCase() : lemmatize(word);
 
     // Check duplicate by lemma first (catches "running" when "run" already exists)
     const existingByLemma = await ctx.db
@@ -258,6 +258,20 @@ export const remove = mutation({
       throw new Error("Unauthorized: word does not belong to this device");
     }
     await ctx.db.delete(id);
+  },
+});
+
+export const removeBatch = mutation({
+  args: { ids: v.array(v.id("words")), deviceId: v.string() },
+  handler: async (ctx, { ids, deviceId }) => {
+    let deleted = 0;
+    for (const id of ids) {
+      const word = await ctx.db.get(id);
+      if (!word || word.deviceId !== deviceId) continue;
+      await ctx.db.delete(id);
+      deleted++;
+    }
+    return { deleted };
   },
 });
 

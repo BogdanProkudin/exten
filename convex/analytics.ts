@@ -1,6 +1,209 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 
+// Helper: compute word strength inline (not imported from client code)
+function computeWordStrength(word: { consecutiveCorrect?: number; status: string }): number {
+  const strength =
+    (word.consecutiveCorrect || 0) * 15 +
+    (word.status === "known" ? 50 : word.status === "learning" ? 25 : 0);
+  return Math.max(0, Math.min(100, strength));
+}
+
+// Helper: format timestamp to YYYY-MM-DD in UTC
+function toDateString(ts: number): string {
+  const d = new Date(ts);
+  return d.toISOString().split("T")[0];
+}
+
+// Get activity heatmap data (GitHub-style)
+export const getActivityHeatmap = query({
+  args: { deviceId: v.string(), days: v.optional(v.number()) },
+  handler: async (ctx, { deviceId, days: daysArg }) => {
+    const days = daysArg ?? 90;
+    const now = Date.now();
+    const startTs = now - days * 24 * 60 * 60 * 1000;
+
+    // Get events in range
+    const events = await ctx.db
+      .query("events")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+
+    // Get words added in range
+    const words = await ctx.db
+      .query("words")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+
+    // Count by date
+    const countMap = new Map<string, number>();
+
+    for (const event of events) {
+      if (event.timestamp >= startTs) {
+        const dateStr = toDateString(event.timestamp);
+        countMap.set(dateStr, (countMap.get(dateStr) || 0) + 1);
+      }
+    }
+
+    for (const word of words) {
+      if (word.addedAt && word.addedAt >= startTs) {
+        const dateStr = toDateString(word.addedAt);
+        countMap.set(dateStr, (countMap.get(dateStr) || 0) + 1);
+      }
+    }
+
+    // Build array for each day in range (including zeros)
+    const result: { date: string; count: number }[] = [];
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (let i = days - 1; i >= 0; i--) {
+      const dateStr = toDateString(now - i * dayMs);
+      result.push({ date: dateStr, count: countMap.get(dateStr) || 0 });
+    }
+
+    return result;
+  },
+});
+
+// Get review accuracy trend over time
+export const getAccuracyTrend = query({
+  args: { deviceId: v.string(), days: v.optional(v.number()) },
+  handler: async (ctx, { deviceId, days: daysArg }) => {
+    const days = daysArg ?? 30;
+    const now = Date.now();
+    const startTs = now - days * 24 * 60 * 60 * 1000;
+
+    const events = await ctx.db
+      .query("events")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+
+    const rememberedMap = new Map<string, number>();
+    const forgotMap = new Map<string, number>();
+
+    for (const event of events) {
+      if (event.timestamp < startTs) continue;
+      const dateStr = toDateString(event.timestamp);
+      if (event.type === "review_remembered") {
+        rememberedMap.set(dateStr, (rememberedMap.get(dateStr) || 0) + 1);
+      } else if (event.type === "review_forgot") {
+        forgotMap.set(dateStr, (forgotMap.get(dateStr) || 0) + 1);
+      }
+    }
+
+    const result: { date: string; remembered: number; forgot: number; accuracy: number }[] = [];
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (let i = days - 1; i >= 0; i--) {
+      const dateStr = toDateString(now - i * dayMs);
+      const remembered = rememberedMap.get(dateStr) || 0;
+      const forgot = forgotMap.get(dateStr) || 0;
+      const total = remembered + forgot;
+      const accuracy = total > 0 ? Math.round((remembered / total) * 100) : 0;
+      result.push({ date: dateStr, remembered, forgot, accuracy });
+    }
+
+    return result;
+  },
+});
+
+// Get word strength distribution
+export const getWordStrengthDistribution = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, { deviceId }) => {
+    const words = await ctx.db
+      .query("words")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+
+    let weak = 0;
+    let growing = 0;
+    let strong = 0;
+    let mastered = 0;
+
+    for (const word of words) {
+      const strength = computeWordStrength(word);
+      if (strength <= 25) weak++;
+      else if (strength <= 50) growing++;
+      else if (strength <= 75) strong++;
+      else mastered++;
+    }
+
+    return { weak, growing, strong, mastered };
+  },
+});
+
+// Get top words by strength
+export const getTopWords = query({
+  args: {
+    deviceId: v.string(),
+    type: v.union(v.literal("strongest"), v.literal("weakest")),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { deviceId, type, limit: limitArg }) => {
+    const limit = limitArg ?? 10;
+    const words = await ctx.db
+      .query("words")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+
+    const wordsWithStrength = words.map((w) => ({
+      word: w.word,
+      translation: w.translation,
+      strength: computeWordStrength(w),
+      reviewCount: w.reviewCount || 0,
+      status: w.status,
+    }));
+
+    wordsWithStrength.sort((a, b) =>
+      type === "strongest" ? b.strength - a.strength : a.strength - b.strength
+    );
+
+    return wordsWithStrength.slice(0, limit);
+  },
+});
+
+// Get streak history (active days)
+export const getStreakHistory = query({
+  args: { deviceId: v.string(), days: v.optional(v.number()) },
+  handler: async (ctx, { deviceId, days: daysArg }) => {
+    const days = daysArg ?? 90;
+    const now = Date.now();
+    const startTs = now - days * 24 * 60 * 60 * 1000;
+
+    const events = await ctx.db
+      .query("events")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+
+    const words = await ctx.db
+      .query("words")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+
+    const activeDays = new Set<string>();
+
+    for (const event of events) {
+      if (event.timestamp >= startTs) {
+        activeDays.add(toDateString(event.timestamp));
+      }
+    }
+
+    for (const word of words) {
+      if (word.addedAt && word.addedAt >= startTs) {
+        activeDays.add(toDateString(word.addedAt));
+      }
+    }
+
+    const result: { date: string; active: boolean }[] = [];
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (let i = days - 1; i >= 0; i--) {
+      const dateStr = toDateString(now - i * dayMs);
+      result.push({ date: dateStr, active: activeDays.has(dateStr) });
+    }
+
+    return result;
+  },
+});
+
 // Get learning insights and analytics
 export const getInsights = query({
   args: { deviceId: v.string() },

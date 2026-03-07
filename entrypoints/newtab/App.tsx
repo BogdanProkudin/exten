@@ -681,6 +681,9 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
   const [pendingDeletes, setPendingDeletes] = useState<Map<string, NodeJS.Timeout>>(new Map());
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [strengthFilter, setStrengthFilter] = useState<"all" | "weak">("all");
+  const [sortBy, setSortBy] = useState<"recent" | "strength" | "alphabetical">("recent");
+  const [selectedWords, setSelectedWords] = useState<Set<string>>(new Set());
+  const [batchMode, setBatchMode] = useState(false);
   const [hardStarTipVisible, setHardStarTipVisible] = useState(false);
 
   // Track vocab tab opens and check for hard star tip
@@ -705,14 +708,22 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
     searchTerm.length >= 2 ? { deviceId, term: searchTerm } : "skip",
   );
   const removeWord = useMutation(api.words.remove);
+  const removeBatch = useMutation(api.words.removeBatch);
   const updateReview = useMutation(api.words.updateReview);
   const setStatus = useMutation(api.words.setStatus);
   const toggleHard = useMutation(api.words.toggleHard);
 
   const rawWords = searchTerm.length >= 2 ? searchResults : paginatedWords;
-  const words = rawWords && strengthFilter === "weak"
+  const filteredWords = rawWords && strengthFilter === "weak"
     ? rawWords.filter((w) => computeStrength(w) < 40)
     : rawWords;
+  const words = filteredWords && sortBy !== "recent"
+    ? [...filteredWords].sort((a, b) => {
+        if (sortBy === "strength") return computeStrength(a) - computeStrength(b);
+        if (sortBy === "alphabetical") return a.word.localeCompare(b.word);
+        return 0;
+      })
+    : filteredWords;
   const isLoading =
     searchTerm.length >= 2
       ? searchResults === undefined
@@ -816,7 +827,7 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
         </div>
       )}
 
-      <div className="mb-6 flex gap-3 items-center">
+      <div className="mb-4 flex gap-3 items-center">
         <input
           type="text"
           placeholder="Search words..."
@@ -848,6 +859,47 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
         </div>
       </div>
 
+      {/* Sort & Batch Controls */}
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="text-xs px-3 py-1.5 bg-white border border-gray-200 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="recent">Most Recent</option>
+            <option value="strength">Weakest First</option>
+            <option value="alphabetical">A-Z</option>
+          </select>
+          <button
+            onClick={() => {
+              setBatchMode(!batchMode);
+              if (batchMode) setSelectedWords(new Set());
+            }}
+            className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+              batchMode ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            {batchMode ? "Cancel" : "Select"}
+          </button>
+        </div>
+        {batchMode && selectedWords.size > 0 && (
+          <button
+            onClick={async () => {
+              await removeBatch({
+                ids: Array.from(selectedWords) as Id<"words">[],
+                deviceId,
+              });
+              setSelectedWords(new Set());
+              setBatchMode(false);
+            }}
+            className="text-xs px-3 py-1.5 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 transition-colors"
+          >
+            Delete {selectedWords.size} word{selectedWords.size > 1 ? "s" : ""}
+          </button>
+        )}
+      </div>
+
       {isLoading ? (
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => (
@@ -868,6 +920,22 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100">
+                  {batchMode && (
+                    <th className="w-8 px-2 py-3">
+                      <input
+                        type="checkbox"
+                        checked={words !== undefined && words.length > 0 && selectedWords.size === words.length}
+                        onChange={(e) => {
+                          if (e.target.checked && words) {
+                            setSelectedWords(new Set(words.map((w) => w._id)));
+                          } else {
+                            setSelectedWords(new Set());
+                          }
+                        }}
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </th>
+                  )}
                   <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">
                     Word
                   </th>
@@ -903,6 +971,23 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
                           : "hover:bg-gray-50"
                       }`}
                     >
+                      {batchMode && (
+                        <td className="px-2 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedWords.has(word._id)}
+                            onChange={(e) => {
+                              setSelectedWords((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(word._id);
+                                else next.delete(word._id);
+                                return next;
+                              });
+                            }}
+                            className="w-3.5 h-3.5 rounded border-gray-300 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                          />
+                        </td>
+                      )}
                       <td
                         className={`px-4 py-3 text-sm font-medium cursor-pointer select-none ${isPendingDelete ? "text-gray-400 line-through" : "text-gray-900"}`}
                         onClick={() => {

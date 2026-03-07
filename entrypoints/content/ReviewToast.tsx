@@ -6,6 +6,7 @@ import {
   EASING,
 } from "../../src/lib/motion";
 import { shouldShowTip, markTipSeen, dismissTipForever, incrementCounter } from "../../src/lib/tips";
+import { isSpeechRecognitionSupported, startListening, stopListening, type SpeechResult } from "../../src/lib/speech-recognition";
 
 interface ReviewWord {
   _id: string;
@@ -26,6 +27,8 @@ export function ReviewToast({ word, onClose }: ReviewToastProps) {
   const [tipVisible, setTipVisible] = useState(false);
   const [tipText, setTipText] = useState("");
   const [tipId, setTipId] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [speechResult, setSpeechResult] = useState<SpeechResult | null>(null);
   const visible = useEntranceAnimation();
 
   // Check for tips
@@ -67,6 +70,20 @@ export function ReviewToast({ word, onClose }: ReviewToastProps) {
     },
     [answered, word._id, triggerClose],
   );
+
+  const handleSpeak = useCallback(async () => {
+    if (isListening) return;
+    setIsListening(true);
+    setSpeechResult(null);
+    try {
+      const result = await startListening(word.word);
+      setSpeechResult(result);
+    } catch (e) {
+      setSpeechResult({ transcript: (e as Error).message, confidence: 0, isMatch: false });
+    } finally {
+      setIsListening(false);
+    }
+  }, [isListening, word.word]);
 
   // Keyboard shortcuts: Space=reveal, ArrowLeft=forgot, ArrowRight=remembered, Escape=close
   useEffect(() => {
@@ -181,6 +198,36 @@ export function ReviewToast({ word, onClose }: ReviewToastProps) {
                 <p className="text-xs text-gray-500 text-center mt-1">
                   ← / →
                 </p>
+                {isSpeechRecognitionSupported() && (
+                  <div style={{ marginTop: "8px", textAlign: "center" }}>
+                    <button
+                      onClick={handleSpeak}
+                      disabled={isListening}
+                      style={{
+                        background: isListening ? "#dbeafe" : "#f3f4f6",
+                        border: "none",
+                        borderRadius: "8px",
+                        padding: "6px 12px",
+                        fontSize: "12px",
+                        cursor: isListening ? "default" : "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        color: isListening ? "#2563eb" : "#6b7280",
+                        transition: "all 150ms",
+                      }}
+                    >
+                      {isListening ? (
+                        <span style={{ animation: "pulse 1s ease-in-out infinite" }}>🎙️</span>
+                      ) : speechResult ? (
+                        speechResult.isMatch ? "✅" : "❌"
+                      ) : (
+                        "🎤"
+                      )}
+                      {isListening ? "Listening..." : speechResult ? speechResult.transcript : "Practice pronunciation"}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <p
