@@ -208,9 +208,11 @@ export default defineContentScript({
               }}
               vocabLemmas={vocabCacheLemmas ?? undefined}
               onSaved={(lemma) => {
+                console.log("[Vocabify] onSaved called:", { lemma, word: text.toLowerCase() });
                 if (!vocabCacheLemmas) vocabCacheLemmas = new Set();
                 vocabCacheLemmas.add(lemma);
                 vocabCacheLemmas.add(text.toLowerCase());
+                console.log("[Vocabify] Cache updated, lemmas:", Array.from(vocabCacheLemmas));
               }}
             />,
           );

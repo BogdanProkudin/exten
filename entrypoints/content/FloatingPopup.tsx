@@ -92,18 +92,22 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved }:
 
   // Always verify saved status against server (handles stale/missing local cache)
   useEffect(() => {
+    console.log("[Vocabify] Checking saved status for:", { word, lemma, detectedAsSaved });
     chrome.runtime
       .sendMessage({ type: "GET_WORD_BY_LEMMA", lemma, word: word.toLowerCase() })
       .then((res) => {
+        console.log("[Vocabify] GET_WORD_BY_LEMMA response:", res);
         if (res?.success && res.word) {
           setSavedWordData(res.word as SavedWordData);
           setMode("saved");
         } else {
           // Word not in DB (deleted?) — fall back to new if we thought it was saved
+          console.log("[Vocabify] Word not found in DB, keeping mode:", mode);
           setMode((prev) => (prev === "saved" ? "new" : prev));
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[Vocabify] GET_WORD_BY_LEMMA error:", err);
         setMode((prev) => (prev === "saved" ? "new" : prev));
       })
       .finally(() => setLoadingSavedData(false));
@@ -248,11 +252,14 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved }:
     setSaving(false);
 
     if (res?.success) {
+      console.log("[Vocabify] Word saved successfully:", { word, lemma });
       setSaved(true);
       incrementCounter("wordsSaved");
       if (withContext) incrementCounter("saveContextUsed", true);
       onSaved?.(lemma);
       setTimeout(fadeOutAndClose, 1500);
+    } else {
+      console.error("[Vocabify] Save failed:", res);
     }
   };
 
