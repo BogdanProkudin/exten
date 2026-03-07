@@ -1,6 +1,7 @@
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { useEffect, useState, useCallback } from "react";
+import { Onboarding } from "./Onboarding";
 
 interface GamificationStats {
   currentStreak: number;
@@ -29,12 +30,32 @@ export default function App() {
   const [quickReviewActive, setQuickReviewActive] = useState(false);
   const [gamificationStats, setGamificationStats] = useState<GamificationStats | null>(null);
   const [newAchievement, setNewAchievement] = useState<Achievement | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
 
   useEffect(() => {
     chrome.runtime.sendMessage({ type: "GET_DEVICE_ID" }).then((res) => {
       if (res?.deviceId) setDeviceId(res.deviceId);
     });
+    
+    // Check if onboarding completed
+    chrome.storage.sync.get("onboardingComplete").then((data) => {
+      setShowOnboarding(!data.onboardingComplete);
+      setOnboardingChecked(true);
+    });
   }, []);
+  
+  const handleOnboardingComplete = (settings: { targetLang: string; userLevel: string; dailyGoal: number }) => {
+    chrome.storage.sync.set({
+      onboardingComplete: true,
+      targetLang: settings.targetLang,
+      userLevel: settings.userLevel,
+      dailyGoalXp: settings.dailyGoal,
+    });
+    setTargetLang(settings.targetLang);
+    setUserLevel(settings.userLevel);
+    setShowOnboarding(false);
+  };
 
   // Fetch gamification stats and check for new achievements
   useEffect(() => {
@@ -135,6 +156,19 @@ export default function App() {
 
   // Determine if dark mode should be active
   const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+  // Show onboarding for new users
+  if (!onboardingChecked) {
+    return (
+      <div className="w-[340px] p-4 bg-white flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  
+  if (showOnboarding) {
+    return <Onboarding onComplete={handleOnboardingComplete} />;
+  }
 
   return (
     <div className={`w-[340px] p-4 ${isDark ? "bg-gray-900 text-white" : "bg-white"}`}>
