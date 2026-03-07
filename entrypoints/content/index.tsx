@@ -7,7 +7,7 @@ import { SimplifyPanel } from "./SimplifyPanel";
 import { AchievementToast } from "./AchievementToast";
 import { YouTubeOverlay } from "./YouTubeOverlay";
 import { analyzePageContent, type PageAnalysisResult, type VocabCache } from "../../src/lib/page-analyzer";
-import { isYouTubeVideoPage } from "../../src/lib/youtube";
+import { isYouTubePage, isYouTubeVideoPage } from "../../src/lib/youtube";
 import "../../src/global.css";
 
 function isEditableTarget(el: HTMLElement): boolean {
@@ -169,7 +169,7 @@ export default defineContentScript({
         for (const w of res.words as string[]) vocabCacheLemmas.add(w);
         console.log("[Vocabify] Cache loaded with lemmas:", Array.from(vocabCacheLemmas));
         
-        // Initialize YouTube overlay if on YouTube
+        // Initialize YouTube overlay if already on a video page
         if (isYouTubeVideoPage()) {
           initYouTubeOverlay();
         }
@@ -177,6 +177,26 @@ export default defineContentScript({
     }).catch((err) => {
       console.error("[Vocabify] GET_VOCAB_CACHE error:", err);
     });
+
+    // Watch for YouTube SPA navigation so overlay works when browsing
+    // homepage → video (not just on direct video page loads)
+    if (isYouTubePage()) {
+      const handleYtNav = () => {
+        // Small delay to let YouTube update the URL
+        setTimeout(() => {
+          if (isYouTubeVideoPage()) {
+            initYouTubeOverlay();
+          } else if (youtubeUi) {
+            // Left a video page — clean up overlay
+            youtubeUi.remove();
+            youtubeUi = null;
+          }
+        }, 300);
+      };
+
+      document.addEventListener("yt-navigate-finish", handleYtNav);
+      window.addEventListener("popstate", handleYtNav);
+    }
     
     // YouTube Overlay
     let youtubeUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
