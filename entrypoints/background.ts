@@ -357,19 +357,27 @@ export default defineBackground(() => {
       return true;
     }
 
-    // Handle FETCH_SUBTITLE_CONTENT — fetch from background context (has proper cookies)
+    // Handle FETCH_SUBTITLE_CONTENT — fetch from background context
     if (message.type === "FETCH_SUBTITLE_CONTENT") {
-      fetch(message.url)
+      const fetchUrl = message.url;
+      console.log("[Vocabify BG] Fetching subtitle URL:", fetchUrl);
+      fetch(fetchUrl)
         .then(async (response) => {
+          console.log("[Vocabify BG] Subtitle response:", response.status, response.statusText, "type:", response.type);
+          const content = await response.text();
+          console.log("[Vocabify BG] Subtitle content length:", content.length, "preview:", content.substring(0, 100));
           if (!response.ok) {
-            sendResponse({ success: false, error: `HTTP ${response.status}` });
+            sendResponse({ success: false, error: `HTTP ${response.status}: ${content.substring(0, 200)}` });
             return;
           }
-          const content = await response.text();
+          if (content.length === 0) {
+            sendResponse({ success: false, error: "Empty response body" });
+            return;
+          }
           sendResponse({ success: true, content });
         })
         .catch((e) => {
-          console.log("[Vocabify] Background subtitle fetch failed:", e);
+          console.log("[Vocabify BG] Subtitle fetch error:", e);
           sendResponse({ success: false, error: String(e) });
         });
       return true;

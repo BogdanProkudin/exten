@@ -124,9 +124,13 @@ export async function fetchSubtitles(videoId: string, lang: string = "en"): Prom
   
   if (subtitleUrl) {
     try {
-      // Ensure fmt=json3 is appended properly
+      // Ensure fmt=json3 and lang are set properly
       const url = new URL(subtitleUrl);
       url.searchParams.set("fmt", "json3");
+      // Some tracks' baseUrl doesn't include lang — add it
+      if (!url.searchParams.has("lang")) {
+        url.searchParams.set("lang", lang);
+      }
       const fetchUrl = url.toString();
       
       console.log("[Vocabify] Fetching subtitles via background from:", fetchUrl.substring(0, 120) + "...");
