@@ -42,7 +42,7 @@ type GetWordByLemmaMessage = { type: "GET_WORD_BY_LEMMA"; lemma: string; word?: 
 type ToggleHardMessage = { type: "TOGGLE_HARD"; wordId: string };
 type AddContextMessage = { type: "ADD_CONTEXT"; wordId: string; sentence: string; url: string };
 type DeleteWordMessage = { type: "DELETE_WORD"; wordId: string };
-type FetchYouTubeSubtitlesMessage = { type: "FETCH_YOUTUBE_SUBTITLES"; lang: string };
+// YouTube subtitle types removed — now using DOM-based caption observation
 
 type AppMessage =
   | TranslateMessage
@@ -60,7 +60,7 @@ type AppMessage =
   | GetStatsMessage
   | GetAchievementsMessage
   | DeleteWordMessage
-  | FetchYouTubeSubtitlesMessage;
+;
 
 function isValidMessage(msg: unknown): msg is AppMessage {
   if (!msg || typeof msg !== "object" || !("type" in msg)) return false;
@@ -96,8 +96,7 @@ function isValidMessage(msg: unknown): msg is AppMessage {
       return true;
     case "DELETE_WORD":
       return typeof m.wordId === "string";
-    case "FETCH_YOUTUBE_SUBTITLES":
-      return typeof m.lang === "string";
+    // YouTube subtitle cases removed — now using DOM-based caption observation
     default:
       return false;
   }
@@ -301,87 +300,6 @@ export default defineBackground(() => {
     if (!isValidMessage(message)) {
       sendResponse({ error: "Unknown message type" });
       return false;
-    }
-
-    // Handle FETCH_YOUTUBE_SUBTITLES — find URL AND fetch content inside page context
-    // (Both content script and background fetch() return empty — YouTube requires page cookies)
-    if (message.type === "FETCH_YOUTUBE_SUBTITLES" && sender.tab?.id) {
-      const tabId = sender.tab.id;
-      const lang = message.lang;
-      chrome.scripting.executeScript({
-        target: { tabId },
-        world: "MAIN",
-        func: async (lang: string) => {
-          try {
-            const currentVideoId = new URLSearchParams(window.location.search).get("v");
-            if (!currentVideoId) return { error: "No video ID" };
-
-            // Find subtitle URL from player response
-            const candidates = [
-              (window as any).ytInitialPlayerResponse,
-              (window as any).ytplayer?.bootstrapPlayerResponse,
-              (window as any).ytplayer?.config?.args?.raw_player_response,
-            ];
-
-            let subtitleUrl: string | null = null;
-
-            for (const response of candidates) {
-              const responseVideoId = response?.videoDetails?.videoId;
-              if (responseVideoId && responseVideoId !== currentVideoId) continue;
-
-              const tracks = response?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-              if (!tracks || tracks.length === 0) continue;
-
-              let manual = null as any, auto = null as any, anyEn = null as any;
-              for (const t of tracks) {
-                const lc = t.languageCode || "";
-                const isMatch = lc === lang || lc.startsWith(lang + "-");
-                const isEn = lc.startsWith("en");
-                const isManual = t.kind !== "asr";
-                if (isMatch && isManual && !manual) manual = t;
-                else if (isMatch && !auto) auto = t;
-                else if (isEn && isManual && !anyEn) anyEn = t;
-                else if (isEn && !anyEn) anyEn = t;
-              }
-              const best = manual || auto || anyEn;
-              if (best?.baseUrl) {
-                subtitleUrl = best.baseUrl;
-                break;
-              }
-            }
-
-            if (!subtitleUrl) return { error: "No subtitle tracks found" };
-
-            // Fetch subtitles from WITHIN the page context (has proper cookies/origin)
-            const url = new URL(subtitleUrl);
-            url.searchParams.set("fmt", "json3");
-            if (!url.searchParams.has("lang")) {
-              url.searchParams.set("lang", lang);
-            }
-
-            const response = await fetch(url.toString());
-            if (!response.ok) return { error: `HTTP ${response.status}` };
-
-            const text = await response.text();
-            if (!text) return { error: "Empty response" };
-
-            return { content: text };
-          } catch (e: any) {
-            return { error: e?.message || String(e) };
-          }
-        },
-        args: [lang],
-      }).then((results) => {
-        const result = results?.[0]?.result as any;
-        if (result?.content) {
-          sendResponse({ success: true, content: result.content });
-        } else {
-          sendResponse({ success: false, error: result?.error || "Unknown error" });
-        }
-      }).catch((e) => {
-        sendResponse({ success: false, error: String(e) });
-      });
-      return true;
     }
 
     handleMessage(message, convex, updateBadge).then(sendResponse);

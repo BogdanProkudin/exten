@@ -1,12 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  isYouTubeVideoPage,
-  getVideoId,
   getVideoElement,
-  fetchSubtitles,
-  getCurrentCue,
+  observeCaptions,
   tokenizeSubtitle,
-  type SubtitleCue,
 } from "../../src/lib/youtube";
 import { lemmatize } from "../../src/lib/lemmatize";
 
@@ -16,15 +12,11 @@ interface YouTubeOverlayProps {
 }
 
 export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps) {
+  const [currentText, setCurrentText] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(true);
-  const [subtitles, setSubtitles] = useState<SubtitleCue[]>([]);
-  const [currentCue, setCurrentCue] = useState<SubtitleCue | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [videoId, setVideoId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Check if YouTube subtitles feature is enabled
+  // Check if feature is enabled
   useEffect(() => {
     chrome.storage.sync.get("youtubeSubtitlesEnabled").then((data) => {
       if (data.youtubeSubtitlesEnabled === false) {
@@ -33,109 +25,56 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
     });
   }, []);
 
-  // Initialize video ID
+  // Get video element reference
   useEffect(() => {
-    if (!isYouTubeVideoPage()) return;
-    setVideoId(getVideoId());
-  }, []);
-
-  // Listen for YouTube SPA navigation
-  useEffect(() => {
-    const handleNav = () => {
-      setTimeout(() => {
-        if (isYouTubeVideoPage()) {
-          const newId = getVideoId();
-          setVideoId((prev) => {
-            if (prev !== newId) {
-              setSubtitles([]);
-              setCurrentCue(null);
-              setError(null);
-            }
-            return newId;
-          });
-        } else {
-          setVideoId(null);
-          setSubtitles([]);
-          setCurrentCue(null);
-        }
-      }, 300);
-    };
-
-    document.addEventListener("yt-navigate-finish", handleNav);
-    window.addEventListener("popstate", handleNav);
-
-    return () => {
-      document.removeEventListener("yt-navigate-finish", handleNav);
-      window.removeEventListener("popstate", handleNav);
-    };
-  }, []);
-
-  // Fetch subtitles when video changes
-  useEffect(() => {
-    if (!videoId || !enabled) return;
-
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    (async () => {
-      try {
-        // fetchSubtitles already falls back to any English track via getSubtitleUrlFromPage
-        const subs = await fetchSubtitles(videoId, "en");
-        if (cancelled) return;
-
-        if (subs.length > 0) {
-          setSubtitles(subs);
-        } else {
-          setError("No English subtitles available");
-        }
-      } catch {
-        if (!cancelled) setError("Failed to load subtitles");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [videoId, enabled]);
-
-  // Track video time and update current cue
-  useEffect(() => {
-    if (subtitles.length === 0 || !enabled) return;
-
-    let video: HTMLVideoElement | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
-
-    const updateCue = () => {
-      if (!video) return;
-      const cue = getCurrentCue(subtitles, video.currentTime);
-      setCurrentCue(cue);
-    };
-
-    const attach = () => {
-      video = getVideoElement();
-      if (!video) {
-        if (attempts++ < 20) {
-          retryTimer = setTimeout(attach, 500);
-        }
-        return;
+    const findVideo = () => {
+      const video = getVideoElement();
+      if (video) {
+        videoRef.current = video;
+      } else if (attempts++ < 20) {
+        setTimeout(findVideo, 500);
       }
-      videoRef.current = video;
-      video.addEventListener("timeupdate", updateCue);
-      video.addEventListener("seeking", updateCue);
     };
+    findVideo();
+  }, []);
 
-    attach();
+  // Observe YouTube's native captions
+  useEffect(() => {
+    if (!enabled) return;
+
+    console.log("[Vocabify] Starting caption observer...");
+    const cleanup = observeCaptions((text) => {
+      setCurrentText(text);
+    });
+
+    return cleanup;
+  }, [enabled]);
+
+  // Hide YouTube's native captions when we're showing ours
+  useEffect(() => {
+    if (!enabled || !currentText) return;
+
+    const style = document.createElement("style");
+    style.id = "vocabify-hide-captions";
+    style.textContent = `
+      .ytp-caption-window-container .ytp-caption-segment {
+        color: transparent !important;
+      }
+      .ytp-caption-window-container .caption-window {
+        background: transparent !important;
+      }
+    `;
+
+    // Only add if not already present
+    if (!document.getElementById("vocabify-hide-captions")) {
+      document.head.appendChild(style);
+    }
 
     return () => {
-      clearTimeout(retryTimer);
-      if (video) {
-        video.removeEventListener("timeupdate", updateCue);
-        video.removeEventListener("seeking", updateCue);
-      }
+      document.getElementById("vocabify-hide-captions")?.remove();
     };
-  }, [subtitles, enabled]);
+  }, [enabled, !!currentText]);
 
   const handleWordClick = useCallback(
     (word: string, e: React.MouseEvent<HTMLSpanElement>) => {
@@ -151,49 +90,10 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
     [onWordClick]
   );
 
-  if (!enabled || !videoId || !currentCue) {
-    // Show loading/error even without a cue
-    if (loading || error) {
-      return (
-        <div style={{
-          position: "absolute",
-          bottom: "80px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 100,
-          pointerEvents: "auto",
-        }}>
-          {loading && (
-            <div style={{
-              background: "rgba(0,0,0,0.7)",
-              color: "#fff",
-              padding: "6px 12px",
-              borderRadius: "6px",
-              fontSize: "12px",
-              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            }}>
-              Loading subtitles...
-            </div>
-          )}
-          {error && (
-            <div style={{
-              background: "rgba(239, 68, 68, 0.9)",
-              color: "#fff",
-              padding: "6px 12px",
-              borderRadius: "6px",
-              fontSize: "12px",
-              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            }}>
-              {error}
-            </div>
-          )}
-        </div>
-      );
-    }
-    return null;
-  }
+  if (!enabled || !currentText) return null;
 
-  const words = tokenizeSubtitle(currentCue.text);
+  const words = tokenizeSubtitle(currentText);
+  if (words.length === 0) return null;
 
   return (
     <div
@@ -206,11 +106,12 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
         pointerEvents: "auto",
       }}
     >
-      {/* Toggle button */}
+      {/* Disable button — visible on hover */}
       <button
         onClick={() => {
           setEnabled(false);
           chrome.storage.sync.set({ youtubeSubtitlesEnabled: false });
+          document.getElementById("vocabify-hide-captions")?.remove();
         }}
         style={{
           position: "absolute",
@@ -234,7 +135,7 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
         V ✕
       </button>
 
-      {/* Subtitle overlay */}
+      {/* Interactive subtitle overlay */}
       <div
         style={{
           background: "rgba(0, 0, 0, 0.8)",
@@ -245,13 +146,11 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
           lineHeight: 1.5,
           maxWidth: "80vw",
           textAlign: "center",
-          fontFamily:
-            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
           boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
           pointerEvents: "auto",
         }}
         onMouseEnter={() => {
-          // Show close button on hover
           const btn = document.querySelector(".vocabify-yt-container button") as HTMLElement;
           if (btn) btn.style.opacity = "1";
         }}
@@ -263,7 +162,7 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
         {words.map((word, i) => {
           const isKnown = vocabLemmas?.has(lemmatize(word)) || vocabLemmas?.has(word.toLowerCase());
           return (
-            <span key={`${currentCue.start}-${i}`}>
+            <span key={`${i}-${word}`}>
               <span
                 onClick={(e) => handleWordClick(word, e)}
                 style={{
@@ -271,9 +170,7 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
                   padding: "2px 4px",
                   borderRadius: "4px",
                   transition: "background-color 0.15s ease",
-                  backgroundColor: isKnown
-                    ? "rgba(34, 197, 94, 0.3)"
-                    : "transparent",
+                  backgroundColor: isKnown ? "rgba(34, 197, 94, 0.3)" : "transparent",
                   borderBottom: isKnown ? "none" : "1px dashed rgba(255,255,255,0.4)",
                   pointerEvents: "auto",
                 }}

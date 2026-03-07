@@ -7,7 +7,7 @@ import { SimplifyPanel } from "./SimplifyPanel";
 import { AchievementToast } from "./AchievementToast";
 import { YouTubeOverlay } from "./YouTubeOverlay";
 import { analyzePageContent, type PageAnalysisResult, type VocabCache } from "../../src/lib/page-analyzer";
-import { isYouTubePage, isYouTubeVideoPage } from "../../src/lib/youtube";
+import { isYouTubePage, isYouTubeVideoPage, getVideoElement } from "../../src/lib/youtube";
 import "../../src/global.css";
 
 function isEditableTarget(el: HTMLElement): boolean {
