@@ -110,13 +110,17 @@ export default defineContentScript({
 
     // Fetch vocab cache early so it's ready when the popup opens
     chrome.runtime.sendMessage({ type: "GET_VOCAB_CACHE" }).then((res) => {
+      console.log("[Vocabify] GET_VOCAB_CACHE response:", res);
       if (res?.success) {
         if (!vocabCacheLemmas) vocabCacheLemmas = new Set();
         for (const l of res.lemmas as string[]) vocabCacheLemmas.add(l);
         // Also include words (for pre-migration entries without lemma)
         for (const w of res.words as string[]) vocabCacheLemmas.add(w);
+        console.log("[Vocabify] Cache loaded with lemmas:", Array.from(vocabCacheLemmas));
       }
-    }).catch(() => {});
+    }).catch((err) => {
+      console.error("[Vocabify] GET_VOCAB_CACHE error:", err);
+    });
 
     // Load excluded sites and keep in sync
     let excludedDomains: string[] = [];
@@ -198,6 +202,7 @@ export default defineContentScript({
           container.style.pointerEvents = "none";
           container.style.fontSize = "16px";
           const root = ReactDOM.createRoot(container);
+          console.log("[Vocabify] Creating popup for word:", text.toLowerCase(), "cache:", vocabCacheLemmas ? Array.from(vocabCacheLemmas) : null);
           root.render(
             <FloatingPopup
               word={text.toLowerCase()}
