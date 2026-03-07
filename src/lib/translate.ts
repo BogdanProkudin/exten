@@ -111,7 +111,7 @@ async function tryGoogleTranslate(
 
 async function getTargetLang(): Promise<string> {
   try {
-    const data = await chrome.storage.sync.get("targetLang");
+    const data = await chrome.storage.sync.get("targetLang") as { targetLang?: string };
     return data.targetLang || "ru";
   } catch {
     return "ru";

@@ -195,7 +195,7 @@ export default function App() {
           <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-sm">V</span>
           </div>
-          <h1 className="text-lg font-semibold text-gray-900">Vocabify</h1>
+          <h1 className={`text-lg font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>Vocabify</h1>
         </div>
         {gamificationStats && gamificationStats.currentStreak > 0 && (
           <div className="flex items-center gap-1 px-2 py-1 bg-orange-50 rounded-lg">
@@ -207,17 +207,17 @@ export default function App() {
 
       {/* Gamification Stats Bar */}
       {gamificationStats && (
-        <div className="mb-4 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl">
+        <div className={`mb-4 p-3 rounded-xl ${isDark ? "bg-gradient-to-r from-blue-900/50 to-purple-900/50" : "bg-gradient-to-r from-blue-50 to-purple-50"}`}>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
                 LVL {gamificationStats.level}
               </span>
-              <span className="text-xs text-gray-600">
+              <span className={`text-xs ${isDark ? "text-gray-300" : "text-gray-600"}`}>
                 {gamificationStats.totalXp} XP
               </span>
             </div>
-            <span className="text-xs text-gray-500">
+            <span className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
               {gamificationStats.xpProgress.current}/{gamificationStats.xpProgress.needed} to next
             </span>
           </div>

@@ -154,7 +154,10 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
     >
       {/* Toggle button */}
       <button
-        onClick={() => setEnabled(false)}
+        onClick={() => {
+          setEnabled(false);
+          chrome.storage.sync.set({ youtubeSubtitlesEnabled: false });
+        }}
         style={{
           position: "absolute",
           top: "-32px",

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
 
 // XP rewards for different actions
 const XP_REWARDS = {
@@ -268,7 +268,7 @@ export const awardXp = mutation({
 
 // Check and award achievements
 async function checkAchievements(
-  ctx: any,
+  ctx: MutationCtx,
   deviceId: string,
   stats: { totalWords: number; totalReviews: number; streak: number; level: number }
 ): Promise<Array<{ id: string; name: string; description: string; icon: string; xp: number }>> {

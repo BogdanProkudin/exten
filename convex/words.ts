@@ -453,7 +453,7 @@ export const getAllForExport = query({
       status: w.status,
       reviewCount: w.reviewCount ?? 0,
       contexts: w.contexts ?? [],
-      createdAt: w.createdAt ?? w._creationTime,
+      createdAt: w.addedAt ?? w._creationTime,
     }));
   },
 });
@@ -489,7 +489,7 @@ export const importWord = mutation({
       example: "",
       status: status ?? "new",
       sourceUrl: "",
-      createdAt: Date.now(),
+      addedAt: Date.now(),
       reviewCount: 0,
       lastReviewed: undefined,
       consecutiveCorrect: 0,

@@ -118,14 +118,14 @@ export function ImportExport({ deviceId, onClose }: ImportExportProps) {
         words = lines.filter((l) => l.includes("\t")).map((line) => {
           const [word, translation] = line.split("\t");
           return {
-            word: word.trim(),
-            translation: translation.trim(),
-            status: "new",
+            word: (word || "").trim(),
+            translation: (translation || "").trim(),
+            status: "new" as const,
             reviewCount: 0,
             contexts: [],
             createdAt: Date.now(),
           };
-        });
+        }).filter((w) => w.word && w.translation); // Filter out empty entries
       } else {
         throw new Error("Unsupported file format");
       }
