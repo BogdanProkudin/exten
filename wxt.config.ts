@@ -13,6 +13,7 @@ export default defineConfig({
     host_permissions: [
       "https://api.mymemory.translated.net/*",
       "https://libretranslate.com/*",
+      "https://translate.googleapis.com/*",
     ],
   },
 });
