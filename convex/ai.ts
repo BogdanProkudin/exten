@@ -49,7 +49,7 @@ export const explainWord = action({
     userLevel: v.optional(v.string()),
   },
   handler: async (ctx, { word, sentence, targetLang, userLevel }): Promise<{ explanation: string }> => {
-    const cacheKey = djb2(`explain:${word}:${sentence}`);
+    const cacheKey = djb2(`explain:${word}:${sentence}:${targetLang || "en"}:${userLevel || "B1"}`);
 
     // Check cache
     const cached = await ctx.runQuery(internal.ai.getCachedResult, {
@@ -65,8 +65,29 @@ export const explainWord = action({
       throw new Error("OpenAI API key not configured");
     }
 
-    const level = userLevel || "B1";
-    const lang = targetLang || "English";
+    // Validate user level
+    const validLevels = new Set(["A1", "A2", "B1", "B2", "C1", "C2"]);
+    const level = validLevels.has(userLevel || "") ? userLevel! : "B1";
+    
+    // Map language codes to full names for the AI prompt
+    const langCodeToName: Record<string, string> = {
+      en: "English",
+      ru: "Russian",
+      es: "Spanish",
+      fr: "French",
+      de: "German",
+      it: "Italian",
+      pt: "Portuguese",
+      zh: "Chinese",
+      ja: "Japanese",
+      ko: "Korean",
+      ar: "Arabic",
+      hi: "Hindi",
+      uk: "Ukrainian",
+      pl: "Polish",
+      tr: "Turkish",
+    };
+    const lang = langCodeToName[targetLang || ""] || targetLang || "English";
 
     const prompt = `You are a vocabulary tutor. Explain the word "${word}" in simple terms suitable for a ${level}-level English learner.
 ${sentence ? `Context sentence: "${sentence}"` : ""}
@@ -123,7 +144,7 @@ export const simplifyText = action({
   handler: async (ctx, { text, userLevel }): Promise<{ simplified: string }> => {
     // Truncate input
     const truncated = text.slice(0, 12_000);
-    const cacheKey = djb2(`simplify:${truncated}`);
+    const cacheKey = djb2(`simplify:${truncated}:${userLevel || "B1"}`);
 
     // Check cache
     const cached = await ctx.runQuery(internal.ai.getCachedResult, {
@@ -139,7 +160,9 @@ export const simplifyText = action({
       throw new Error("OpenAI API key not configured");
     }
 
-    const level = userLevel || "B1";
+    // Validate user level
+    const validLevels = new Set(["A1", "A2", "B1", "B2", "C1", "C2"]);
+    const level = validLevels.has(userLevel || "") ? userLevel! : "B1";
 
     const prompt = `Rewrite the following text at a ${level} English level. Use shorter sentences, simpler vocabulary, and clear structure. Keep the same meaning and key information.
 

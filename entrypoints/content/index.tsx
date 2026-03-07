@@ -397,10 +397,16 @@ export default defineContentScript({
                   }
                 }}
                 onExplainWord={async (word, sentence) => {
+                  // Get user settings from storage
+                  const storage = await chrome.storage.sync.get(["userLevel", "targetLang"]);
+                  const userLevel = storage.userLevel || "B1";
+                  const targetLang = storage.targetLang || "ru";
                   const res = await chrome.runtime.sendMessage({
                     type: "AI_EXPLAIN",
                     word,
                     sentence,
+                    userLevel,
+                    targetLang,
                   });
                   if (res?.success) return res.explanation as string;
                   return null;
@@ -424,9 +430,13 @@ export default defineContentScript({
       const text = collectVisibleText(12_000);
       if (!text || text.length < 50) return;
 
+      // Get user level from storage
+      const storage = await chrome.storage.sync.get("userLevel");
+      const userLevel = storage.userLevel || "B1";
       const res = await chrome.runtime.sendMessage({
         type: "AI_SIMPLIFY",
         text,
+        userLevel,
       });
       if (!res?.success) return;
 

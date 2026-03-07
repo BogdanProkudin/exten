@@ -27,11 +27,14 @@ export default function App() {
   const [readingAssistantEnabled, setReadingAssistantEnabled] = useState(true);
   const [radarEnabled, setRadarEnabled] = useState(true);
   const [showDifficultyBadge, setShowDifficultyBadge] = useState(true);
+  const [targetLang, setTargetLang] = useState("ru");
+  const [userLevel, setUserLevel] = useState("B1");
 
   useEffect(() => {
     chrome.storage.sync.get([
       "dndUntil", "reviewIntervalMinutes", "excludedDomains", "maxToastsPerDay",
       "readingAssistantEnabled", "radarEnabled", "showDifficultyBadge",
+      "targetLang", "userLevel",
     ]).then((data: Record<string, unknown>) => {
       if (data.dndUntil) setDndUntil(data.dndUntil as number);
       if (data.reviewIntervalMinutes) setReviewInterval(data.reviewIntervalMinutes as number);
@@ -40,6 +43,8 @@ export default function App() {
       if (data.readingAssistantEnabled !== undefined) setReadingAssistantEnabled(data.readingAssistantEnabled as boolean);
       if (data.radarEnabled !== undefined) setRadarEnabled(data.radarEnabled as boolean);
       if (data.showDifficultyBadge !== undefined) setShowDifficultyBadge(data.showDifficultyBadge as boolean);
+      if (data.targetLang) setTargetLang(data.targetLang as string);
+      if (data.userLevel) setUserLevel(data.userLevel as string);
     });
     // Get current tab domain
     chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
@@ -236,6 +241,66 @@ export default function App() {
               <span>1</span>
               <span>50</span>
             </div>
+          </div>
+        </div>
+      </details>
+
+      {/* Collapsible: Language */}
+      <details className="border-t border-gray-100 pt-2 mb-2">
+        <summary className="text-xs font-medium text-gray-500 cursor-pointer select-none py-1">
+          Language
+        </summary>
+        <div className="mt-2 space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-1 block">
+              Translate to
+            </label>
+            <select
+              value={targetLang}
+              onChange={(e) => {
+                const val = e.target.value;
+                setTargetLang(val);
+                chrome.storage.sync.set({ targetLang: val });
+              }}
+              className="w-full text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white"
+            >
+              <option value="ru">Russian</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="it">Italian</option>
+              <option value="pt">Portuguese</option>
+              <option value="zh">Chinese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="ar">Arabic</option>
+              <option value="hi">Hindi</option>
+              <option value="uk">Ukrainian</option>
+              <option value="pl">Polish</option>
+              <option value="tr">Turkish</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-1 block">
+              Your English level
+            </label>
+            <select
+              value={userLevel}
+              onChange={(e) => {
+                const val = e.target.value;
+                setUserLevel(val);
+                chrome.storage.sync.set({ userLevel: val });
+              }}
+              className="w-full text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white"
+            >
+              <option value="A2">A2 - Elementary</option>
+              <option value="B1">B1 - Intermediate</option>
+              <option value="B2">B2 - Upper Intermediate</option>
+              <option value="C1">C1 - Advanced</option>
+            </select>
+            <p className="text-[10px] text-gray-500 mt-1">
+              Used for AI explanations complexity
+            </p>
           </div>
         </div>
       </details>

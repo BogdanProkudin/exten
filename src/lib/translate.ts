@@ -109,27 +109,37 @@ async function tryGoogleTranslate(
   return translation;
 }
 
+async function getTargetLang(): Promise<string> {
+  try {
+    const data = await chrome.storage.sync.get("targetLang");
+    return data.targetLang || "ru";
+  } catch {
+    return "ru";
+  }
+}
+
 export async function translateWord(
   word: string,
-  targetLang = "ru",
+  targetLang?: string,
 ): Promise<string> {
+  const lang = targetLang ?? await getTargetLang();
   // Try MyMemory first
   try {
-    return await tryMyMemory(word, targetLang);
+    return await tryMyMemory(word, lang);
   } catch {
     // Fall through
   }
 
   // Try LibreTranslate as fallback
   try {
-    return await tryLibreTranslate(word, targetLang);
+    return await tryLibreTranslate(word, lang);
   } catch {
     // Fall through
   }
 
   // Try Google Translate as last resort
   try {
-    return await tryGoogleTranslate(word, targetLang);
+    return await tryGoogleTranslate(word, lang);
   } catch {
     // All failed
   }
