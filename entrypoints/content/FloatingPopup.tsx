@@ -419,6 +419,14 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved }:
       if (res?.success) {
         setReviewResult(remembered ? "remembered" : "forgot");
         if (res.newStatus) setReviewNewStatus(res.newStatus);
+        // Update local data to reflect the review
+        setSavedWordData(prev => prev ? {
+          ...prev,
+          lastReviewed: Date.now(),
+          status: res.newStatus || prev.status,
+          reviewCount: prev.reviewCount + 1,
+          consecutiveCorrect: remembered ? prev.consecutiveCorrect + 1 : 0,
+        } : null);
       } else {
         setActionError("Review failed");
       }
