@@ -112,12 +112,14 @@ export function lemmatize(word: string): string {
     }
     return stem;
   }
-  // -es -> strip (boxes->box)
+  // -es -> strip (boxes->box, oranges->orange)
   if (lower.endsWith("es") && lower.length > 3) {
+    // Sibilants: boxes->box, watches->watch, fizzes->fizz
     if (/(?:sh|ch|x|z|s)es$/.test(lower)) {
       return lower.slice(0, -2);
     }
-    return lower.slice(0, -2);
+    // Other -es: strip only the 's' (oranges->orange, caves->cave)
+    return lower.slice(0, -1);
   }
   // -s -> strip (cats->cat), but not -ss (boss)
   if (lower.endsWith("s") && !lower.endsWith("ss") && lower.length > 3) {

@@ -15,7 +15,7 @@ export function getReviewScore(word: Word): number {
   if (!word.lastReviewed) return 1000;
 
   const daysSince = (now - word.lastReviewed) / DAY_MS;
-  const interval = word.intervalDays ?? 1;
+  const interval = word.intervalDays ?? (word.status === "known" ? 7 : 1);
   // Overdue ratio: how overdue relative to interval
   let score = ((daysSince - interval) / interval) * 100;
 

@@ -536,10 +536,15 @@ export const getQuizWords = query({
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
       .collect();
     
-    // Filter to words that have translations and shuffle
+    // Filter to words that have translations, use deterministic "shuffle" based on word hash
     const validWords = words
       .filter((w) => w.word && w.translation)
-      .sort(() => Math.random() - 0.5)
+      .sort((a, b) => {
+        // Deterministic pseudo-shuffle: hash-based ordering using creation time + word
+        const hashA = (a._creationTime * 31 + a.word.charCodeAt(0)) % 1000;
+        const hashB = (b._creationTime * 31 + b.word.charCodeAt(0)) % 1000;
+        return hashA - hashB;
+      })
       .slice(0, limit || 50);
     
     return validWords.map((w) => ({

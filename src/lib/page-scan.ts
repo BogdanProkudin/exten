@@ -25,8 +25,12 @@ export function extractPageWords(): string[] {
     if (SKIP_TAGS.has(parent.tagName)) continue;
 
     // Skip hidden elements
-    const style = getComputedStyle(parent);
-    if (style.display === "none" || style.visibility === "hidden") continue;
+    try {
+      const style = getComputedStyle(parent);
+      if (style.display === "none" || style.visibility === "hidden") continue;
+    } catch {
+      continue;
+    }
 
     const text = node.textContent || "";
     const tokens = text.split(/[^a-zA-Z]+/);

@@ -2,7 +2,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
 import { getDeviceId } from "../src/lib/device-id";
 import { translateWord } from "../src/lib/translate";
-import { canMakeAiCall, incrementAiCalls } from "../src/lib/pro-gate";
+import { canMakeAiCall, incrementAiCalls, tryConsumeAiCall } from "../src/lib/pro-gate";
 import type { Id } from "../convex/_generated/dataModel";
 
 const REVIEW_ALARM = "vocabify-review";
@@ -131,7 +131,10 @@ export default defineBackground(() => {
 
   chrome.runtime.onInstalled.addListener(async () => {
     await getDeviceId();
-    chrome.alarms.create(REVIEW_ALARM, { periodInMinutes: 30 });
+    // Respect user's review interval setting (default: 30 min)
+    const settings = await chrome.storage.sync.get("reviewIntervalMinutes") as { reviewIntervalMinutes?: number };
+    const interval = settings.reviewIntervalMinutes ?? 30;
+    chrome.alarms.create(REVIEW_ALARM, { periodInMinutes: interval });
     chrome.alarms.create(RADAR_DECAY_ALARM, { periodInMinutes: 60 * 24 });
 
     // Create context menus
@@ -392,8 +395,9 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
 
     case "AI_EXPLAIN": {
       try {
-        const proCheck = await canMakeAiCall();
-        if (!proCheck.allowed) {
+        // Atomic check+consume to prevent race condition
+        const consumed = await tryConsumeAiCall();
+        if (!consumed.allowed) {
           return { success: false, error: "Daily AI limit reached", remaining: 0 };
         }
         const result = await convex.action(api.ai.explainWord, {
@@ -402,9 +406,7 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
           targetLang: message.targetLang,
           userLevel: message.userLevel,
         });
-        await incrementAiCalls();
-        const remaining = (await canMakeAiCall()).remaining;
-        return { success: true, explanation: result.explanation, remaining };
+        return { success: true, explanation: result.explanation, remaining: consumed.remaining };
       } catch (e) {
         return { success: false, error: String(e) };
       }
@@ -412,21 +414,20 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
 
     case "AI_SIMPLIFY": {
       try {
-        const proCheck = await canMakeAiCall();
-        if (!proCheck.allowed) {
+        // Atomic check+consume to prevent race condition
+        const consumed = await tryConsumeAiCall();
+        if (!consumed.allowed) {
           return { success: false, error: "Daily AI limit reached", remaining: 0 };
         }
         const result = await convex.action(api.ai.simplifyText, {
           text: message.text,
           userLevel: message.userLevel,
         });
-        await incrementAiCalls();
-        const remaining = (await canMakeAiCall()).remaining;
         return {
           success: true,
           simplified: result.simplified,
           originalLength: message.text.length,
-          remaining,
+          remaining: consumed.remaining,
         };
       } catch (e) {
         return { success: false, error: String(e) };

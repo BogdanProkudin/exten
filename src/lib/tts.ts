@@ -15,8 +15,24 @@ export function speak(text: string, lang: string = "en-US"): Promise<void> {
     utterance.pitch = 1;
     utterance.volume = 1;
 
-    // Try to find a good voice
-    const voices = window.speechSynthesis.getVoices();
+    // Try to find a good voice (voices may load async in Chrome)
+    let voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) {
+      // Wait for voices to load (Chrome fires voiceschanged async)
+      await new Promise<void>((res) => {
+        const handler = () => {
+          window.speechSynthesis.removeEventListener("voiceschanged", handler);
+          res();
+        };
+        window.speechSynthesis.addEventListener("voiceschanged", handler);
+        // Fallback timeout — don't block forever
+        setTimeout(() => {
+          window.speechSynthesis.removeEventListener("voiceschanged", handler);
+          res();
+        }, 500);
+      });
+      voices = window.speechSynthesis.getVoices();
+    }
     const preferredVoice = voices.find(
       (v) => v.lang.startsWith(lang.split("-")[0]) && v.localService
     ) || voices.find((v) => v.lang.startsWith("en"));

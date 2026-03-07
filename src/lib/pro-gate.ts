@@ -40,6 +40,25 @@ export async function canMakeAiCall(): Promise<{ allowed: boolean; remaining: nu
   return { allowed: remaining > 0, remaining };
 }
 
+/**
+ * Atomically check + increment AI calls. Returns whether the call is allowed.
+ * Use this instead of separate canMakeAiCall() + incrementAiCalls() to avoid race conditions.
+ */
+export async function tryConsumeAiCall(): Promise<{ allowed: boolean; remaining: number }> {
+  const data = await readProData();
+  if (data.aiCallsResetDate !== todayStr()) {
+    data.aiCallsToday = 0;
+    data.aiCallsResetDate = todayStr();
+  }
+  const limit = data.isPro ? PRO_DAILY_LIMIT : FREE_DAILY_LIMIT;
+  if (data.aiCallsToday >= limit) {
+    return { allowed: false, remaining: 0 };
+  }
+  data.aiCallsToday += 1;
+  await writeProData(data);
+  return { allowed: true, remaining: Math.max(0, limit - data.aiCallsToday) };
+}
+
 export async function incrementAiCalls(): Promise<void> {
   const data = await readProData();
   if (data.aiCallsResetDate !== todayStr()) {
