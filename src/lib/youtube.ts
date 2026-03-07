@@ -39,7 +39,34 @@ export function getSubtitleContainer(): HTMLElement | null {
   return document.querySelector(".ytp-caption-segment");
 }
 
-// Parse subtitle events into cues
+// Parse XML subtitle format (YouTube sometimes returns this instead of JSON)
+function parseXmlSubtitles(xml: string): SubtitleCue[] {
+  const cues: SubtitleCue[] = [];
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml, "text/xml");
+  const texts = doc.querySelectorAll("text");
+  
+  for (const el of texts) {
+    const start = parseFloat(el.getAttribute("start") || "0");
+    const dur = parseFloat(el.getAttribute("dur") || "3");
+    const text = (el.textContent || "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&#39;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/\n/g, " ")
+      .trim();
+    
+    if (text.length > 0) {
+      cues.push({ start, end: start + dur, text });
+    }
+  }
+  
+  return cues;
+}
+
+// Parse subtitle events into cues (JSON format)
 function parseSubtitleEvents(events: any[]): SubtitleCue[] {
   return events
     .filter((event: any) => event.segs)
@@ -84,15 +111,42 @@ export async function fetchSubtitles(videoId: string, lang: string = "en"): Prom
   
   if (subtitleUrl) {
     try {
-      const separator = subtitleUrl.includes("?") ? "&" : "?";
-      const response = await fetch(subtitleUrl + separator + "fmt=json3");
-      if (response.ok) {
-        const data = await response.json();
-        if (data.events) {
-          const cues = parseSubtitleEvents(data.events);
-          if (cues.length > 0) {
-            console.log(`[Vocabify] Loaded ${cues.length} subtitle cues`);
-            return cues;
+      // Ensure fmt=json3 is appended properly
+      const url = new URL(subtitleUrl);
+      url.searchParams.set("fmt", "json3");
+      
+      console.log("[Vocabify] Fetching subtitles from:", url.toString().substring(0, 120) + "...");
+      const response = await fetch(url.toString());
+      console.log("[Vocabify] Subtitle response status:", response.status, response.statusText);
+      
+      if (!response.ok) {
+        console.log("[Vocabify] Subtitle response not OK:", response.status);
+      } else {
+        const text = await response.text();
+        console.log("[Vocabify] Subtitle response length:", text.length, "first 200 chars:", text.substring(0, 200));
+        
+        if (text.length === 0) {
+          console.log("[Vocabify] Empty subtitle response");
+        } else {
+          try {
+            const data = JSON.parse(text);
+            if (data.events) {
+              const cues = parseSubtitleEvents(data.events);
+              if (cues.length > 0) {
+                console.log(`[Vocabify] Loaded ${cues.length} subtitle cues`);
+                return cues;
+              }
+            }
+          } catch (parseErr) {
+            console.log("[Vocabify] JSON parse failed, response might be XML. Trying XML parse...");
+            // YouTube sometimes returns XML format even with fmt=json3
+            if (text.includes("<transcript>") || text.includes("<text")) {
+              const cues = parseXmlSubtitles(text);
+              if (cues.length > 0) {
+                console.log(`[Vocabify] Loaded ${cues.length} subtitle cues from XML`);
+                return cues;
+              }
+            }
           }
         }
       }
