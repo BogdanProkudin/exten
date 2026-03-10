@@ -172,6 +172,135 @@ function LineChart({ data, width = 600, height = 200 }: { data: { date: string; 
   );
 }
 
+// --- Reading Speed Chart SVG ---
+function ReadingSpeedChart({ data }: { data: { date: string; avgWpm: number; avgComprehension: number; sessionCount: number }[] }) {
+  const width = 600;
+  const height = 200;
+  const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+
+  // Filter out days with no sessions
+  const validData = data.filter((d) => d.sessionCount > 0);
+
+  if (validData.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-40 text-gray-400 text-sm">
+        No reading sessions yet
+      </div>
+    );
+  }
+
+  // Find max values for scaling
+  const maxWpm = Math.max(...validData.map((d) => d.avgWpm));
+  const maxComprehension = 100; // Always 0-100%
+
+  // Create points for both lines
+  const wpmPoints = validData.map((d, i) => ({
+    x: padding.left + (i / Math.max(validData.length - 1, 1)) * chartW,
+    y: padding.top + chartH - (d.avgWpm / Math.max(maxWpm, 1)) * chartH,
+    ...d,
+  }));
+
+  const comprehensionPoints = validData.map((d, i) => ({
+    x: padding.left + (i / Math.max(validData.length - 1, 1)) * chartW,
+    y: padding.top + chartH - (d.avgComprehension / 100) * chartH,
+    ...d,
+  }));
+
+  const wpmPath = wpmPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+  const comprehensionPath = comprehensionPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+  return (
+    <div className="space-y-4">
+      {/* Legend */}
+      <div className="flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+          <span>Reading Speed (WPM)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+          <span>Comprehension (%)</span>
+        </div>
+      </div>
+
+      {/* Chart */}
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="xMidYMid meet">
+        {/* Y-axis labels for WPM */}
+        {[0, Math.round(maxWpm * 0.25), Math.round(maxWpm * 0.5), Math.round(maxWpm * 0.75), maxWpm].map((v) => (
+          <text
+            key={`wpm-${v}`}
+            x={padding.left - 8}
+            y={padding.top + chartH - (v / Math.max(maxWpm, 1)) * chartH + 4}
+            textAnchor="end"
+            fill="#3b82f6"
+            fontSize="10"
+          >
+            {v}
+          </text>
+        ))}
+
+        {/* Y-axis labels for comprehension (right side) */}
+        {[0, 25, 50, 75, 100].map((v) => (
+          <text
+            key={`comp-${v}`}
+            x={width - padding.right + 8}
+            y={padding.top + chartH - (v / 100) * chartH + 4}
+            textAnchor="start"
+            fill="#22c55e"
+            fontSize="10"
+          >
+            {v}%
+          </text>
+        ))}
+
+        {/* Grid lines */}
+        {[0.25, 0.5, 0.75].map((fraction) => (
+          <line
+            key={fraction}
+            x1={padding.left}
+            y1={padding.top + chartH * fraction}
+            x2={width - padding.right}
+            y2={padding.top + chartH * fraction}
+            stroke="#f3f4f6"
+            strokeWidth="1"
+          />
+        ))}
+
+        {/* WPM Line */}
+        <path d={wpmPath} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Comprehension Line */}
+        <path d={comprehensionPath} fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* WPM Data points */}
+        {wpmPoints.map((p, i) => (
+          <circle key={`wpm-${i}`} cx={p.x} cy={p.y} r="3" fill="#3b82f6" stroke="white" strokeWidth="1.5">
+            <title>{`${formatDate(p.date)}: ${p.avgWpm} WPM`}</title>
+          </circle>
+        ))}
+
+        {/* Comprehension Data points */}
+        {comprehensionPoints.map((p, i) => (
+          <circle key={`comp-${i}`} cx={p.x} cy={p.y} r="3" fill="#22c55e" stroke="white" strokeWidth="1.5">
+            <title>{`${formatDate(p.date)}: ${p.avgComprehension}% comprehension`}</title>
+          </circle>
+        ))}
+
+        {/* X-axis labels */}
+        {wpmPoints.map((p, i) =>
+          i % Math.ceil(wpmPoints.length / 6) === 0 ? (
+            <text key={i} x={p.x} y={height - 5} textAnchor="middle" fill="#9ca3af" fontSize="9">
+              {formatDate(p.date)}
+            </text>
+          ) : null
+        )}
+      </svg>
+    </div>
+  );
+}
+
 // --- Main Component ---
 export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps) {
   const [hoveredCell, setHoveredCell] = useState<{ date: string; count: number; x: number; y: number } | null>(null);
@@ -183,6 +312,11 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
   const weakestWords = useQuery(api.analytics.getTopWords, { deviceId, type: "weakest", limit: 10 });
   const streakHistory = useQuery(api.analytics.getStreakHistory, { deviceId, days: 90 });
   const insights = useQuery(api.analytics.getInsights, { deviceId });
+  
+  // Reading speed data
+  const readingSpeedTrend = useQuery(api.analytics.getReadingSpeedTrend, { deviceId, days: 30 });
+  const readingStatsByType = useQuery(api.analytics.getReadingStatsByContentType, { deviceId });
+  const readingInsights = useQuery(api.analytics.getReadingInsights, { deviceId });
 
   const isLoading =
     heatmapData === undefined ||
@@ -190,7 +324,10 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
     strengthDist === undefined ||
     strongestWords === undefined ||
     weakestWords === undefined ||
-    streakHistory === undefined;
+    streakHistory === undefined ||
+    readingSpeedTrend === undefined ||
+    readingStatsByType === undefined ||
+    readingInsights === undefined;
 
   // Compute words per week from heatmap data
   const wordsPerWeek = useMemo(() => {
@@ -420,6 +557,82 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
                 {accuracyData && <LineChart data={accuracyData} />}
               </section>
 
+              {/* Reading Speed Dashboard */}
+              {readingInsights && readingInsights.totalSessions > 0 && (
+                <>
+                  {/* Reading Progress Overview */}
+                  <section className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100 p-5">
+                    <h2 className="text-sm font-semibold text-gray-700 mb-4">📚 Reading Progress</h2>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-green-600">{readingInsights.totalSessions}</p>
+                        <p className="text-xs text-gray-500">Sessions</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-green-600">{readingInsights.avgWpm}</p>
+                        <p className="text-xs text-gray-500">Avg WPM</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-green-600">{Math.round(readingInsights.totalWordsRead / 1000)}k</p>
+                        <p className="text-xs text-gray-500">Words Read</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-green-600">{readingInsights.avgComprehension}%</p>
+                        <p className="text-xs text-gray-500">Comprehension</p>
+                      </div>
+                    </div>
+                    
+                    {readingInsights.bestWpmSession && (
+                      <div className="mt-4 p-3 bg-green-100 rounded-lg">
+                        <p className="text-xs font-medium text-green-800 mb-1">🏆 Personal Best</p>
+                        <p className="text-sm text-green-700">
+                          {readingInsights.bestWpmSession.wpm} WPM on {readingInsights.bestWpmSession.contentType} 
+                          ({readingInsights.bestWpmSession.date})
+                        </p>
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Reading Speed Trend */}
+                  <section className="bg-white rounded-xl border border-gray-200 p-5">
+                    <h2 className="text-sm font-semibold text-gray-900 mb-4">Reading Speed & Comprehension Trend</h2>
+                    <p className="text-xs text-gray-500 mb-3">Last 30 days</p>
+                    {readingSpeedTrend && <ReadingSpeedChart data={readingSpeedTrend} />}
+                  </section>
+
+                  {/* Reading Stats by Content Type */}
+                  <section className="bg-white rounded-xl border border-gray-200 p-5">
+                    <h2 className="text-sm font-semibold text-gray-900 mb-4">Performance by Content Type</h2>
+                    {readingStatsByType && readingStatsByType.length > 0 ? (
+                      <div className="space-y-3">
+                        {readingStatsByType.map((stat, i) => (
+                          <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <span className="text-lg">
+                                {stat.contentType === 'youtube' ? '🎥' : 
+                                 stat.contentType === 'social' ? '💬' : 
+                                 stat.contentType === 'news' ? '📰' : 
+                                 stat.contentType === 'reference' ? '📚' : '📄'}
+                              </span>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900 capitalize">{stat.contentType}</p>
+                                <p className="text-xs text-gray-500">{stat.sessionCount} sessions</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-medium text-gray-900">{stat.avgWpm} WPM</p>
+                              <p className="text-xs text-gray-500">{stat.avgComprehension}% comprehension</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400 text-center py-6">No reading data yet</p>
+                    )}
+                  </section>
+                </>
+              )}
+
               {/* Two-column: Donut + Top Words */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Word Strength Distribution - Donut */}
@@ -486,6 +699,27 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
                 <WordList title="Top 10 Strongest Words" words={strongestWords ?? []} colorFrom="#22c55e" colorTo="#15803d" />
                 <WordList title="Top 10 Weakest Words" words={weakestWords ?? []} colorFrom="#f59e0b" colorTo="#ef4444" />
               </div>
+
+              {/* RPG Promotion */}
+              <section className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-xl border border-purple-100 p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-purple-900 mb-2">🎮 Level Up Your Learning!</h2>
+                    <p className="text-purple-700 text-sm mb-3">
+                      Check out your RPG dashboard for achievements, skill trees, daily challenges, and language pattern insights!
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      window.location.hash = 'rpg';
+                      window.location.reload();
+                    }}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium text-sm"
+                  >
+                    Open RPG Dashboard →
+                  </button>
+                </div>
+              </section>
     </div>
   );
 }

@@ -2,8 +2,8 @@
 
 let currentUtterance: SpeechSynthesisUtterance | null = null;
 
-export function speak(text: string, lang: string = "en-US"): Promise<void> {
-  return new Promise((resolve, reject) => {
+export async function speak(text: string, lang: string = "en-US"): Promise<void> {
+  return new Promise(async (resolve, reject) => {
     // Cancel any ongoing speech
     if (currentUtterance) {
       window.speechSynthesis.cancel();

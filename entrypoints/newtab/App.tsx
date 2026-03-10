@@ -17,6 +17,9 @@ import { ImportExport } from "./ImportExport";
 import { QuizMode } from "./QuizMode";
 import { WordOfTheDay } from "./WordOfTheDay";
 import { WritingPractice } from "./WritingPractice";
+import { GamificationDashboard } from "./GamificationDashboard";
+import { PredictionDashboard } from "./PredictionDashboard";
+import { AISettings } from "./AISettings";
 
 // --- Error Boundary ---
 interface ErrorBoundaryProps {
@@ -143,11 +146,11 @@ function highlightWord(sentence: string, word: string): ReactNode {
 // --- Main App ---
 export default function App() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"review" | "vocabulary" | "hard" | "stats">(() => {
+  const [activeTab, setActiveTab] = useState<"review" | "vocabulary" | "hard" | "stats" | "rpg" | "predictions" | "ai">(() => {
     const hash = window.location.hash.replace("#", "");
-    if (hash === "review" || hash === "vocabulary" || hash === "hard" || hash === "stats") return hash;
+    if (hash === "review" || hash === "vocabulary" || hash === "hard" || hash === "stats" || hash === "rpg" || hash === "predictions" || hash === "ai") return hash;
     const params = new URLSearchParams(window.location.search);
-    return (params.get("tab") as "review" | "vocabulary" | "hard" | "stats") || "review";
+    return (params.get("tab") as "review" | "vocabulary" | "hard" | "stats" | "rpg" | "predictions" | "ai") || "review";
   });
   const [showImportExport, setShowImportExport] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
@@ -212,6 +215,15 @@ export default function App() {
             <TabButton active={activeTab === "stats"} onClick={() => setActiveTab("stats")} id="stats">
               📊 Stats
             </TabButton>
+            <TabButton active={activeTab === "rpg"} onClick={() => setActiveTab("rpg")} id="rpg">
+              🎮 RPG
+            </TabButton>
+            <TabButton active={activeTab === "predictions"} onClick={() => setActiveTab("predictions")} id="predictions">
+              🔮 Predict
+            </TabButton>
+            <TabButton active={activeTab === "ai"} onClick={() => setActiveTab("ai")} id="ai">
+              🤖 AI Settings
+            </TabButton>
           </nav>
           <div className="flex items-center gap-1">
             <button
@@ -255,6 +267,12 @@ export default function App() {
                 <HardWordsTab deviceId={deviceId} />
               ) : activeTab === "stats" ? (
                 <StatsTab deviceId={deviceId} />
+              ) : activeTab === "rpg" ? (
+                <GamificationDashboard deviceId={deviceId} />
+              ) : activeTab === "predictions" ? (
+                <PredictionDashboard deviceId={deviceId} />
+              ) : activeTab === "ai" ? (
+                <AISettings />
               ) : (
                 <VocabularyTab deviceId={deviceId} />
               )}
@@ -538,7 +556,7 @@ function ReviewTab({ deviceId }: { deviceId: string }) {
             {/* Quick Actions */}
             <div className="grid grid-cols-3 gap-3">
               <button
-                onClick={() => setShowQuiz(true)}
+                onClick={() => window.location.hash = 'vocabulary'}
                 className="bg-white rounded-xl border border-gray-200 p-4 text-center hover:border-indigo-200 hover:bg-indigo-50/50 transition-all group"
               >
                 <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">🎯</div>
@@ -546,7 +564,7 @@ function ReviewTab({ deviceId }: { deviceId: string }) {
                 <p className="text-[10px] text-gray-400 mt-0.5">Test your knowledge</p>
               </button>
               <button
-                onClick={() => setShowWriting(true)}
+                onClick={() => window.location.hash = 'vocabulary'}
                 className="bg-white rounded-xl border border-gray-200 p-4 text-center hover:border-purple-200 hover:bg-purple-50/50 transition-all group"
               >
                 <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">✍️</div>
@@ -554,7 +572,7 @@ function ReviewTab({ deviceId }: { deviceId: string }) {
                 <p className="text-[10px] text-gray-400 mt-0.5">Use words in context</p>
               </button>
               <button
-                onClick={() => setActiveTab("vocabulary")}
+                onClick={() => window.location.hash = 'vocabulary'}
                 className="bg-white rounded-xl border border-gray-200 p-4 text-center hover:border-green-200 hover:bg-green-50/50 transition-all group"
               >
                 <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">📚</div>

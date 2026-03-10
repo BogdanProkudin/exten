@@ -99,4 +99,18 @@ export default defineSchema({
   })
     .index("by_device", ["deviceId"])
     .index("by_device_achievement", ["deviceId", "achievementId"]),
+
+  // Reading Speed Tracking
+  readingSessions: defineTable({
+    deviceId: v.string(),
+    wordCount: v.number(),
+    timeSeconds: v.number(),
+    wpm: v.number(),
+    contentType: v.string(), // 'article', 'youtube', 'social', 'news', 'reference', etc.
+    domain: v.string(),
+    language: v.string(),
+    comprehensionScore: v.number(), // 1-5 rating
+    timestamp: v.string(), // ISO string
+    createdAt: v.number(),
+  }).index("by_device", ["deviceId"]),
 });

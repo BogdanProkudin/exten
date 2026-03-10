@@ -517,15 +517,6 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
       }
     }
 
-    case "GET_SUBTITLE_URL": {
-      try {
-        // Get the sender tab ID
-        // This is called from chrome.runtime.onMessage which provides sender info
-        // We need to handle this in the raw listener, not here
-        return { success: false, error: "Handled in raw listener" };
-      } catch (e) {
-        return { success: false, error: String(e) };
-      }
-    }
+
   }
 }

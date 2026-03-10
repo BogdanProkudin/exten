@@ -12,6 +12,7 @@ import { lemmatize } from "../../src/lib/lemmatize";
 import { computeStrength } from "../../src/lib/memory-strength";
 import { getWordEnrichment, type WordEnrichment } from "../../src/lib/word-enrichment";
 import { getPhrasalVerbs } from "../../src/lib/phrase-detector";
+import { getAITranslator } from "../../src/lib/ai-translator";
 
 interface SavedWordData {
   _id: string;
@@ -161,7 +162,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
     });
   }, [word]);
 
-  const fetchTranslation = useCallback(() => {
+  const fetchTranslation = useCallback(async () => {
     if (mode === "saved") {
       setLoading(false);
       return;
@@ -170,25 +171,80 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
     setError(null);
     setTranslation(null);
 
-    chrome.runtime
-      .sendMessage({ type: "TRANSLATE_WORD", word })
-      .then((res) => {
-        if (res?.success) {
-          setTranslation(res.translation);
-          getWordEnrichment(word).then(setEnrichment).catch(() => {});
-        } else {
-          const msg = res?.error || "Translation failed";
-          setError(msg.includes("timed out") ? "Translation timed out" : msg);
-          setErrorShake(true);
-          setTimeout(() => setErrorShake(false), 400);
+    try {
+      // Try AI translation first if enabled and configured
+      const aiTranslator = await getAITranslator();
+      if (aiTranslator) {
+        const settings = await chrome.storage.sync.get(['enableSmartTranslation']);
+        
+        if (settings.enableSmartTranslation !== false) {
+          try {
+            const context = aiTranslator.getTranslationContext(word, document.body.innerText.slice(0, 500));
+            const fullContext = {
+              sourceText: word,
+              surroundingText: context.surroundingText || '',
+              ...context,
+              domain: context.domain || window.location.hostname,
+              contentType: context.contentType || 'article',
+              userLevel: context.userLevel || 'B1',
+              targetLanguage: context.targetLanguage || 'ru',
+              sourceLanguage: 'en'
+            };
+
+            const smartTranslation = await aiTranslator.translateSmart(word, fullContext);
+            
+            if (smartTranslation && smartTranslation.mainTranslation) {
+              let enhancedTranslation = smartTranslation.mainTranslation;
+              
+              if (smartTranslation.alternativeTranslations.length > 0) {
+                enhancedTranslation += ` (${smartTranslation.alternativeTranslations.slice(0, 2).join(', ')})`;
+              }
+              
+              if (smartTranslation.partOfSpeech) {
+                enhancedTranslation += ` [${smartTranslation.partOfSpeech}]`;
+              }
+
+              setTranslation(enhancedTranslation);
+              
+              // Create enhanced enrichment
+              const enhancedEnrichment: WordEnrichment = {
+                phonetic: smartTranslation.pronunciation || '',
+                definitions: smartTranslation.contextualUsage.examples.map((example) => ({
+                  partOfSpeech: smartTranslation.partOfSpeech || 'unknown',
+                  definition: smartTranslation.contextualUsage.explanation || example
+                })),
+                synonyms: smartTranslation.learningTips.similarWords,
+                antonyms: []
+              };
+              
+              setEnrichment(enhancedEnrichment);
+              setLoading(false);
+              return;
+            }
+          } catch (aiError) {
+            console.debug('AI translation failed, using fallback:', aiError);
+          }
         }
-      })
-      .catch(() => {
-        setError("Translation failed");
+      }
+
+      // Fallback to regular translation
+      const res = await chrome.runtime.sendMessage({ type: "TRANSLATE_WORD", word });
+      if (res?.success) {
+        setTranslation(res.translation);
+        getWordEnrichment(word).then(setEnrichment).catch(() => {});
+      } else {
+        const msg = res?.error || "Translation failed";
+        setError(msg.includes("timed out") ? "Translation timed out" : msg);
         setErrorShake(true);
         setTimeout(() => setErrorShake(false), 400);
-      })
-      .finally(() => setLoading(false));
+      }
+    } catch (error) {
+      setError("Translation failed");
+      setErrorShake(true);
+      setTimeout(() => setErrorShake(false), 400);
+    } finally {
+      setLoading(false);
+    }
   }, [word, mode]);
 
   useEffect(() => {
