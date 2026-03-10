@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
 
 // Helper: compute word strength inline (not imported from client code)
 function computeWordStrength(word: { consecutiveCorrect?: number; status: string }): number {
@@ -309,6 +309,183 @@ export const getInsights = query({
       statusBreakdown,
       avgStrength: Math.round(avgStrength),
       uniqueDaysActive: uniqueDays.size,
+    };
+  },
+});
+
+// Save reading session data
+export const saveReadingSession = mutation({
+  args: {
+    deviceId: v.string(),
+    wordCount: v.number(),
+    timeSeconds: v.number(),
+    wpm: v.number(),
+    contentType: v.string(),
+    domain: v.string(),
+    language: v.string(),
+    comprehensionScore: v.number(),
+    timestamp: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("readingSessions", {
+      ...args,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+// Get reading speed trend data
+export const getReadingSpeedTrend = query({
+  args: { deviceId: v.string(), days: v.optional(v.number()) },
+  handler: async (ctx, { deviceId, days: daysArg }) => {
+    const days = daysArg ?? 30;
+    const now = Date.now();
+    const startTs = now - days * 24 * 60 * 60 * 1000;
+
+    const sessions = await ctx.db
+      .query("readingSessions")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+
+    const filteredSessions = sessions.filter((s) => s.createdAt >= startTs);
+
+    // Group by day
+    const dailyData = new Map<string, { totalWpm: number; totalComprehension: number; sessionCount: number }>();
+    
+    for (const session of filteredSessions) {
+      const dateStr = toDateString(session.createdAt);
+      const existing = dailyData.get(dateStr) || { totalWpm: 0, totalComprehension: 0, sessionCount: 0 };
+      dailyData.set(dateStr, {
+        totalWpm: existing.totalWpm + session.wpm,
+        totalComprehension: existing.totalComprehension + session.comprehensionScore,
+        sessionCount: existing.sessionCount + 1,
+      });
+    }
+
+    // Generate complete date range
+    const result = [];
+    for (let i = 0; i < days; i++) {
+      const date = new Date(now - i * 24 * 60 * 60 * 1000);
+      const dateStr = toDateString(date.getTime());
+      const data = dailyData.get(dateStr);
+      
+      result.unshift({
+        date: dateStr,
+        avgWpm: data ? Math.round(data.totalWpm / data.sessionCount) : 0,
+        avgComprehension: data ? Math.round((data.totalComprehension / data.sessionCount) * 20) : 0, // Convert 1-5 to 0-100
+        sessionCount: data ? data.sessionCount : 0,
+      });
+    }
+
+    return result;
+  },
+});
+
+// Get reading statistics by content type
+export const getReadingStatsByContentType = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, { deviceId }) => {
+    const sessions = await ctx.db
+      .query("readingSessions")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+
+    const statsByType = new Map<string, { totalWords: number; totalTime: number; totalSessions: number; totalComprehension: number }>();
+
+    for (const session of sessions) {
+      const existing = statsByType.get(session.contentType) || { 
+        totalWords: 0, 
+        totalTime: 0, 
+        totalSessions: 0,
+        totalComprehension: 0 
+      };
+      
+      statsByType.set(session.contentType, {
+        totalWords: existing.totalWords + session.wordCount,
+        totalTime: existing.totalTime + session.timeSeconds,
+        totalSessions: existing.totalSessions + 1,
+        totalComprehension: existing.totalComprehension + session.comprehensionScore,
+      });
+    }
+
+    const result = Array.from(statsByType.entries()).map(([contentType, stats]) => ({
+      contentType,
+      avgWpm: stats.totalTime > 0 ? Math.round((stats.totalWords / stats.totalTime) * 60) : 0,
+      avgComprehension: stats.totalSessions > 0 ? Math.round((stats.totalComprehension / stats.totalSessions) * 20) : 0,
+      sessionCount: stats.totalSessions,
+      totalWords: stats.totalWords,
+      totalTimeMinutes: Math.round(stats.totalTime / 60),
+    }));
+
+    return result.sort((a, b) => b.sessionCount - a.sessionCount);
+  },
+});
+
+// Get reading progress insights
+export const getReadingInsights = query({
+  args: { deviceId: v.string() },
+  handler: async (ctx, { deviceId }) => {
+    const sessions = await ctx.db
+      .query("readingSessions")
+      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .collect();
+
+    if (sessions.length === 0) {
+      return {
+        totalSessions: 0,
+        totalWordsRead: 0,
+        totalTimeHours: 0,
+        avgWpm: 0,
+        avgComprehension: 0,
+        favoriteContentType: null,
+        bestWpmSession: null,
+        longestSession: null,
+      };
+    }
+
+    const totalWordsRead = sessions.reduce((sum, s) => sum + s.wordCount, 0);
+    const totalTimeSeconds = sessions.reduce((sum, s) => sum + s.timeSeconds, 0);
+    const avgWpm = totalTimeSeconds > 0 ? Math.round((totalWordsRead / totalTimeSeconds) * 60) : 0;
+    const avgComprehension = Math.round((sessions.reduce((sum, s) => sum + s.comprehensionScore, 0) / sessions.length) * 20);
+
+    // Find favorite content type
+    const contentTypeCounts = new Map<string, number>();
+    for (const session of sessions) {
+      contentTypeCounts.set(session.contentType, (contentTypeCounts.get(session.contentType) || 0) + 1);
+    }
+    const favoriteContentType = Array.from(contentTypeCounts.entries())
+      .sort(([,a], [,b]) => b - a)[0]?.[0] || null;
+
+    // Best WPM session
+    const bestWpmSession = sessions.reduce((best, current) => 
+      current.wpm > best.wpm ? current : best
+    );
+
+    // Longest session
+    const longestSession = sessions.reduce((longest, current) =>
+      current.timeSeconds > longest.timeSeconds ? current : longest
+    );
+
+    return {
+      totalSessions: sessions.length,
+      totalWordsRead,
+      totalTimeHours: Math.round((totalTimeSeconds / 3600) * 10) / 10,
+      avgWpm,
+      avgComprehension,
+      favoriteContentType,
+      bestWpmSession: {
+        wpm: bestWpmSession.wpm,
+        contentType: bestWpmSession.contentType,
+        domain: bestWpmSession.domain,
+        date: toDateString(bestWpmSession.createdAt),
+      },
+      longestSession: {
+        timeMinutes: Math.round(longestSession.timeSeconds / 60),
+        contentType: longestSession.contentType,
+        domain: longestSession.domain,
+        wordCount: longestSession.wordCount,
+        date: toDateString(longestSession.createdAt),
+      },
     };
   },
 });

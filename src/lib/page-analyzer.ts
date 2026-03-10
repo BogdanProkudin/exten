@@ -32,6 +32,7 @@ export interface UnknownWord {
   lemma: string;
   frequency: FrequencyBand;
   occurrences: number;
+  difficulty: number; // 0-1 scale, calculated from frequency
 }
 
 export interface PageAnalysisResult {
@@ -161,11 +162,19 @@ export function analyzePageContent(vocabCache: VocabCache): PageAnalysisResult {
       unknownCount++;
       // Pick the most common surface form
       const sortedForms = [...entry.forms];
+      const frequency = getFrequencyBand(lemma);
+      // Calculate difficulty: 0-1 scale based on frequency band
+      const difficulty = frequency === "rare" ? 1.0 : 
+                        frequency === "top10k" ? 0.8 : 
+                        frequency === "top5k" ? 0.6 : 
+                        frequency === "top2k" ? 0.4 : 0.2;
+      
       unknownWords.push({
         word: sortedForms[0],
         lemma,
-        frequency: getFrequencyBand(lemma),
+        frequency,
         occurrences: entry.count,
+        difficulty,
       });
     }
   }

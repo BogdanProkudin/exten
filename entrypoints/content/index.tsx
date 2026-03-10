@@ -6,8 +6,16 @@ import { ReadingPanel } from "./ReadingPanel";
 import { SimplifyPanel } from "./SimplifyPanel";
 import { AchievementToast } from "./AchievementToast";
 import { YouTubeOverlay } from "./YouTubeOverlay";
+import { ReadingSpeedButton } from "./ReadingSpeedButton";
+import { PredictionToast } from "./PredictionToast";
+import { PredictionWidget } from "./PredictionWidget";
+import { PredictionButton } from "./PredictionButton";
+import { WritingAssistant } from "./WritingAssistant";
 import { analyzePageContent, type PageAnalysisResult, type VocabCache } from "../../src/lib/page-analyzer";
 import { isYouTubePage, isYouTubeVideoPage, getVideoElement } from "../../src/lib/youtube";
+import { getPatternAnalyzer } from "../../src/lib/pattern-analyzer";
+import { getGamificationEngine } from "../../src/lib/gamification";
+import { getPredictionEngine, type WordPrediction } from "../../src/lib/prediction-engine";
 import "../../src/global.css";
 
 function isEditableTarget(el: HTMLElement): boolean {
@@ -27,6 +35,48 @@ function isEditableTarget(el: HTMLElement): boolean {
   ];
 
   return editorSelectors.some((sel) => el.closest(sel) !== null);
+}
+
+// Extract readable sentences from page for pattern analysis
+function extractSentencesFromPage(): string[] {
+  const sentences: string[] = [];
+  
+  // Get main content areas, skip navigation/ads/headers
+  const contentSelectors = [
+    'main', 'article', '[role="main"]', '.content', '.post', '.entry',
+    'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'li'
+  ];
+  
+  const skipSelectors = [
+    'nav', 'header', 'footer', 'aside', '.navigation', '.menu', 
+    '.ads', '.advertisement', '.sidebar', '.related', '.comments'
+  ];
+  
+  // Find content elements
+  contentSelectors.forEach(selector => {
+    const elements = document.querySelectorAll(selector);
+    elements.forEach(element => {
+      // Skip if element is inside a skip area
+      if (skipSelectors.some(skipSel => element.closest(skipSel))) {
+        return;
+      }
+      
+      const text = element.textContent || '';
+      if (text.length > 20 && text.length < 500) {
+        // Split into sentences using basic sentence boundary detection
+        const sentenceSplit = text
+          .split(/[.!?]+/)
+          .map(s => s.trim())
+          .filter(s => s.length > 15 && s.length < 200 && /[a-zA-Z]/.test(s));
+        
+        sentences.push(...sentenceSplit);
+      }
+    });
+  });
+  
+  // Deduplicate and limit
+  const uniqueSentences = [...new Set(sentences)];
+  return uniqueSentences.slice(0, 50); // Limit to avoid performance issues
 }
 
 // --- Radar helpers ---
@@ -116,6 +166,13 @@ export default defineContentScript({
     let panelUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let simplifyUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let achievementUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
+    let readingSpeedButtonUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
+    let predictionToastUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
+    let predictionWidgetUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
+    let predictionButtonUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
+    let writingAssistantUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
+    let lastPredictionShown = 0; // Track when we last showed a prediction
+    let currentFocusedElement: HTMLElement | null = null;
     let currentAnalysis: PageAnalysisResult | null = null;
 
     // Show achievement notification
@@ -601,6 +658,79 @@ export default defineContentScript({
       // Skip if too few words (not a real article)
       if (analysis.totalUniqueWords < 10) return;
 
+      // Pattern analysis - Zero AI cost, pure algorithm
+      try {
+        const deviceId = await chrome.runtime.sendMessage({ type: "GET_DEVICE_ID" });
+        if (deviceId?.success) {
+          const patternAnalyzer = await getPatternAnalyzer(deviceId.deviceId);
+          const gamification = await getGamificationEngine(deviceId.deviceId);
+
+          // Analyze sentences on the page for patterns
+          const sentences = extractSentencesFromPage();
+          sentences.forEach(sentence => {
+            if (sentence.length > 20 && sentence.length < 200) {
+              patternAnalyzer.analyzeSentence(sentence, window.location.href);
+            }
+          });
+
+          // Check for new patterns discovered and award XP
+          const insights = patternAnalyzer.getGrammarInsights();
+          const newPatternsCount = insights.filter(p => p.lastSeen > Date.now() - 60000).length; // Last minute
+          
+          if (newPatternsCount > 0) {
+            gamification.addXP({ 
+              action: 'pattern_discovered', 
+              amount: newPatternsCount * 25,
+              source: 'page_analysis'
+            });
+            
+            // Update daily activity
+            gamification.updateDailyActivity();
+            
+            // Save both engines
+            await Promise.all([
+              patternAnalyzer.saveToStorage(),
+              gamification.saveToStorage()
+            ]);
+          }
+
+          // Prediction Engine: Track browsing session for future predictions
+          try {
+            const predictionEngine = await getPredictionEngine(deviceId.deviceId);
+            const domain = window.location.hostname;
+            const wordsOnPage = analysis.unknownWords.map(uw => uw.word).slice(0, 50); // Limit for performance
+            
+            // Record this browsing session
+            await predictionEngine.recordBrowsingSession(domain, 30000, wordsOnPage); // 30s estimated session
+            
+            // If this is a significant session (lots of unknown words), log it
+            if (wordsOnPage.length >= 5) {
+              console.debug(`[Vocabify] Recorded session on ${domain}: ${wordsOnPage.length} new words`);
+            }
+
+            // Show prediction toast occasionally for high-priority words
+            const now = Date.now();
+            const timeSinceLastPrediction = now - lastPredictionShown;
+            const shouldShowPrediction = timeSinceLastPrediction > 5 * 60 * 1000; // 5 minutes cooldown
+
+            if (shouldShowPrediction && !predictionToastUi) {
+              const predictions = predictionEngine.generatePredictions(5);
+              const highPriorityPrediction = predictions.find(p => p.urgency >= 0.7 && p.confidence >= 0.6);
+              
+              if (highPriorityPrediction) {
+                showPredictionToast(highPriorityPrediction, deviceId.deviceId);
+                lastPredictionShown = now;
+              }
+            }
+          } catch (error) {
+            console.debug('Prediction engine update failed:', error);
+          }
+        }
+      } catch (error) {
+        // Silently fail - pattern analysis is optional
+        console.debug('Pattern analysis failed:', error);
+      }
+
       // Update radar data
       if (settings.radarEnabled !== false) {
         updateRadarData(analysis).catch(() => {});
@@ -674,13 +804,66 @@ export default defineContentScript({
                     word,
                   });
                   if (transRes?.success) {
-                    await chrome.runtime.sendMessage({
+                    const saveRes = await chrome.runtime.sendMessage({
                       type: "SAVE_WORD",
                       word,
                       translation: transRes.translation,
                       example: "",
                       sourceUrl: window.location.href,
                     });
+
+                    // Gamification: Award XP for saving words! 🎮
+                    if (saveRes?.success) {
+                      try {
+                        const deviceIdRes = await chrome.runtime.sendMessage({ type: "GET_DEVICE_ID" });
+                        if (deviceIdRes?.success) {
+                          const gamification = await getGamificationEngine(deviceIdRes.deviceId);
+                          
+                          // Base XP for saving a word
+                          let xpGain = 25;
+                          let bonus = 1;
+                          
+                          // Bonus XP for rare/difficult words
+                          if (word.length >= 8) bonus += 0.2; // Long words
+                          if (currentAnalysis) {
+                            const unknownWord = currentAnalysis.unknownWords.find(uw => uw.word.toLowerCase() === word.toLowerCase());
+                            if (unknownWord && unknownWord.difficulty > 0.7) {
+                              bonus += 0.5; // Difficult words worth more
+                              xpGain = 40;
+                            }
+                          }
+
+                          const result = gamification.addXP({ 
+                            action: 'word_saved', 
+                            amount: xpGain,
+                            bonus: bonus,
+                            source: window.location.hostname
+                          });
+
+                          // Update daily activity for streaks
+                          gamification.updateDailyActivity();
+                          
+                          // Save progress
+                          await gamification.saveToStorage();
+
+                          // Show level up notification if leveled up
+                          if (result.leveledUp) {
+                            // Could show a level up toast here
+                            console.log(`🎉 Level up! You're now level ${result.newLevel}!`);
+                          }
+
+                          // Show achievement notifications
+                          if (result.achievementsUnlocked.length > 0) {
+                            result.achievementsUnlocked.forEach(achievement => {
+                              console.log(`🏆 Achievement unlocked: ${achievement.name}!`);
+                            });
+                          }
+                        }
+                      } catch (error) {
+                        // Gamification failure shouldn't break word saving
+                        console.debug('Gamification update failed:', error);
+                      }
+                    }
                   }
                 }}
                 onExplainWord={async (word, sentence) => {
@@ -757,6 +940,266 @@ export default defineContentScript({
       });
 
       simplifyUi.mount();
+    }
+
+    // Reading Speed Tracker Button
+    async function showReadingSpeedButton() {
+      if (readingSpeedButtonUi) return;
+
+      readingSpeedButtonUi = await createShadowRootUi(ctx, {
+        name: "vocabify-reading-speed-button",
+        position: "overlay",
+        zIndex: 2147483645, // Just below other UI elements
+        onMount(container) {
+          const root = ReactDOM.createRoot(container);
+          root.render(
+            <ReadingSpeedButton
+              onToggle={() => {
+                // Optional: Could track usage here
+              }}
+            />
+          );
+          return root;
+        },
+        onRemove(root) {
+          root?.unmount();
+        },
+      });
+
+      readingSpeedButtonUi.mount();
+    }
+
+    // Prediction Toast
+    async function showPredictionToast(prediction: WordPrediction, deviceId: string) {
+      if (predictionToastUi) return;
+
+      predictionToastUi = await createShadowRootUi(ctx, {
+        name: "vocabify-prediction-toast",
+        position: "overlay",
+        zIndex: 2147483644, // Below reading speed button
+        onMount(container) {
+          container.style.pointerEvents = "none";
+          container.style.fontSize = "16px";
+          const root = ReactDOM.createRoot(container);
+          root.render(
+            <PredictionToast
+              prediction={prediction}
+              onClose={() => {
+                predictionToastUi?.remove();
+                predictionToastUi = null;
+              }}
+              onLearnNow={async (word: string) => {
+                // Show popup for the predicted word
+                const rect = document.querySelector('body')?.getBoundingClientRect();
+                if (rect) {
+                  const centerX = window.innerWidth / 2 - 190; // Center popup
+                  const centerY = window.innerHeight / 3;
+                  
+                  // Show popup for the predicted word
+                  showPopupAt(word.toLowerCase(), { 
+                    x: centerX, 
+                    y: centerY
+                  });
+                }
+              }}
+              onDismiss={async (word: string) => {
+                // Track that user dismissed this prediction (for learning)
+                try {
+                  const engine = await getPredictionEngine(deviceId);
+                  engine.validatePrediction(word, false); // User didn't want to learn it
+                } catch (error) {
+                  console.debug('Failed to track prediction dismissal:', error);
+                }
+              }}
+            />
+          );
+          return root;
+        },
+        onRemove(root) {
+          root?.unmount();
+        },
+      });
+
+      predictionToastUi.mount();
+
+      // Auto-hide after 15 seconds
+      setTimeout(() => {
+        if (predictionToastUi) {
+          predictionToastUi.remove();
+          predictionToastUi = null;
+        }
+      }, 15000);
+    }
+
+    // Prediction Widget
+    async function showPredictionWidget() {
+      if (predictionWidgetUi) {
+        // If already open, close it
+        predictionWidgetUi.remove();
+        predictionWidgetUi = null;
+        return;
+      }
+
+      try {
+        const deviceIdRes = await chrome.runtime.sendMessage({ type: "GET_DEVICE_ID" });
+        if (!deviceIdRes?.success) return;
+
+        predictionWidgetUi = await createShadowRootUi(ctx, {
+          name: "vocabify-prediction-widget",
+          position: "overlay",
+          zIndex: 2147483646,
+          onMount(container) {
+            container.style.pointerEvents = "none";
+            container.style.fontSize = "16px";
+            const root = ReactDOM.createRoot(container);
+            root.render(
+              <PredictionWidget
+                deviceId={deviceIdRes.deviceId}
+                onClose={() => {
+                  predictionWidgetUi?.remove();
+                  predictionWidgetUi = null;
+                }}
+                onWordSelect={(word: string) => {
+                  // Close widget and show popup for selected word
+                  predictionWidgetUi?.remove();
+                  predictionWidgetUi = null;
+                  
+                  const centerX = window.innerWidth / 2 - 190;
+                  const centerY = window.innerHeight / 3;
+                  showPopupAt(word.toLowerCase(), { x: centerX, y: centerY });
+                }}
+              />
+            );
+            return root;
+          },
+          onRemove(root) {
+            root?.unmount();
+          },
+        });
+
+        predictionWidgetUi.mount();
+      } catch (error) {
+        console.error('Failed to show prediction widget:', error);
+      }
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener("keydown", (event) => {
+      // Ctrl/Cmd + Shift + P = Show prediction widget
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        showPredictionWidget();
+      }
+    });
+
+    // Prediction Button
+    async function showPredictionButton() {
+      if (predictionButtonUi) return;
+
+      predictionButtonUi = await createShadowRootUi(ctx, {
+        name: "vocabify-prediction-button",
+        position: "overlay",
+        zIndex: 2147483645,
+        onMount(container) {
+          const root = ReactDOM.createRoot(container);
+          root.render(
+            <PredictionButton
+              onClick={() => showPredictionWidget()}
+            />
+          );
+          return root;
+        },
+        onRemove(root) {
+          root?.unmount();
+        },
+      });
+
+      predictionButtonUi.mount();
+    }
+
+    // Writing Assistant
+    async function showWritingAssistant(targetElement: HTMLElement) {
+      // Close any existing assistant
+      if (writingAssistantUi) {
+        writingAssistantUi.remove();
+        writingAssistantUi = null;
+      }
+
+      // Check if writing assistant is enabled
+      try {
+        const settings = await chrome.storage.sync.get(['enableWritingAssistant', 'openaiApiKey']);
+        if (settings.enableWritingAssistant === false || !settings.openaiApiKey) {
+          return; // Don't show if disabled or no API key
+        }
+
+        writingAssistantUi = await createShadowRootUi(ctx, {
+          name: "vocabify-writing-assistant",
+          position: "overlay",
+          zIndex: 2147483647, // Highest priority
+          onMount(container) {
+            container.style.pointerEvents = "auto";
+            const root = ReactDOM.createRoot(container);
+            root.render(
+              <WritingAssistant
+                targetElement={targetElement}
+                onClose={() => {
+                  writingAssistantUi?.remove();
+                  writingAssistantUi = null;
+                  currentFocusedElement = null;
+                }}
+              />
+            );
+            return root;
+          },
+          onRemove(root) {
+            root?.unmount();
+          },
+        });
+
+        writingAssistantUi.mount();
+      } catch (error) {
+        console.error('Failed to show writing assistant:', error);
+      }
+    }
+
+    // Focus/blur handlers for writing assistant
+    document.addEventListener('focusin', async (event) => {
+      const target = event.target as HTMLElement;
+      
+      if (isEditableTarget(target) && target !== currentFocusedElement) {
+        currentFocusedElement = target;
+        
+        // Show writing assistant after a short delay
+        setTimeout(async () => {
+          if (currentFocusedElement === target && document.activeElement === target) {
+            await showWritingAssistant(target);
+          }
+        }, 1000); // 1 second delay so it doesn't appear immediately
+      }
+    });
+
+    document.addEventListener('focusout', (event) => {
+      // Hide writing assistant when focus leaves editable elements
+      setTimeout(() => {
+        if (!document.activeElement || !isEditableTarget(document.activeElement as HTMLElement)) {
+          if (writingAssistantUi) {
+            writingAssistantUi.remove();
+            writingAssistantUi = null;
+          }
+          currentFocusedElement = null;
+        }
+      }, 200); // Short delay to avoid hiding when clicking within the assistant
+    });
+
+    // Show the reading speed button and prediction button on every page
+    if (document.readyState === "complete") {
+      showReadingSpeedButton();
+      showPredictionButton();
+    } else {
+      window.addEventListener("load", () => {
+        showReadingSpeedButton();
+        showPredictionButton();
+      }, { once: true });
     }
 
     // Run analysis after page load via requestIdleCallback
