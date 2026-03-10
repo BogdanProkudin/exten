@@ -8,8 +8,8 @@
     "alarms",
     "activeTab",
     "contextMenus",
-    "tabs",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
   "commands": {
     "translate-selection": {
@@ -32,6 +32,7 @@
     "https://translate.googleapis.com/*",
     "https://api.datamuse.com/*",
     "https://api.dictionaryapi.dev/*",
+    "https://www.youtube.com/*",
     "<all_urls>",
     "http://localhost/*"
   ],
