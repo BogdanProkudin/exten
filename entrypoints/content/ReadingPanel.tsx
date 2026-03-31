@@ -2,6 +2,11 @@ import { useState, useEffect } from "react";
 import type { PageAnalysisResult, UnknownWord } from "../../src/lib/page-analyzer";
 import type { FrequencyBand } from "../../src/lib/frequency-list";
 import {
+  filterAndSortByLevel,
+  getLevelAwareComprehension,
+  getConfigForLevel,
+} from "../../src/lib/level-filter";
+import {
   useEntranceAnimation,
   useExitAnimation,
   DURATION,
@@ -16,6 +21,7 @@ interface RadarSuggestion {
 interface ReadingPanelProps {
   analysis: PageAnalysisResult;
   radarSuggestions: RadarSuggestion[];
+  userLevel: string;
   onClose: () => void;
   onSaveWord: (word: string) => Promise<void>;
   onExplainWord: (word: string, sentence: string) => Promise<string | null>;
@@ -37,9 +43,31 @@ const FREQ_DOT: Record<FrequencyBand, string> = {
   rare: "#ef4444",
 };
 
+const BAND_ORDER: Record<FrequencyBand, number> = { top2k: 0, top5k: 1, top10k: 2, rare: 3 };
+const BAND_HEADERS: Record<FrequencyBand, string> = {
+  top2k: "Common — worth learning first",
+  top5k: "Mid-frequency",
+  top10k: "Uncommon",
+  rare: "Rare — specialized vocabulary",
+};
+
+function groupByBand(words: UnknownWord[]): { band: FrequencyBand; words: UnknownWord[] }[] {
+  const groups = new Map<FrequencyBand, UnknownWord[]>();
+  const sorted = [...words].sort(
+    (a, b) => BAND_ORDER[a.frequency] - BAND_ORDER[b.frequency] || b.occurrences - a.occurrences,
+  );
+  for (const w of sorted) {
+    const list = groups.get(w.frequency);
+    if (list) list.push(w);
+    else groups.set(w.frequency, [w]);
+  }
+  return [...groups.entries()].map(([band, words]) => ({ band, words }));
+}
+
 export function ReadingPanel({
   analysis,
   radarSuggestions,
+  userLevel,
   onClose,
   onSaveWord,
   onExplainWord,
@@ -49,6 +77,17 @@ export function ReadingPanel({
   const [savedWords, setSavedWords] = useState<Set<string>>(new Set());
   const [explanations, setExplanations] = useState<Record<string, string>>({});
   const [explainingWord, setExplainingWord] = useState<string | null>(null);
+  const [savingAllCommon, setSavingAllCommon] = useState(false);
+
+  // Level-aware filtering
+  const { priority, secondary } = filterAndSortByLevel(analysis.unknownWords, userLevel);
+  const config = getConfigForLevel(userLevel);
+  const levelComprehension = getLevelAwareComprehension(
+    analysis.totalUniqueWords,
+    analysis.unknownWords,
+    userLevel,
+  );
+  const hasPriority = priority.length > 0;
 
   const visible = useEntranceAnimation();
   const { isClosing, triggerClose } = useExitAnimation(onClose, DURATION.exit);
@@ -143,7 +182,7 @@ export function ReadingPanel({
               {analysis.difficultyLevel}
             </span>
             <span style={{ fontSize: "13px", color: "#6b7280" }}>
-              {analysis.comprehensionPercent}% comprehension
+              {levelComprehension}% comprehension
             </span>
           </div>
         </div>
@@ -232,7 +271,7 @@ export function ReadingPanel({
           </div>
         )}
 
-        {/* Unknown Words List */}
+        {/* Level-Aware Unknown Words */}
         <div style={{
           fontSize: "12px",
           fontWeight: 700,
@@ -240,11 +279,47 @@ export function ReadingPanel({
           textTransform: "uppercase",
           letterSpacing: "0.05em",
           marginBottom: "8px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
         }}>
-          Unknown Words ({analysis.unknownWords.length})
+          <span>
+            {hasPriority ? config.priorityLabel : "Unknown Words"} ({hasPriority ? priority.length : secondary.length})
+          </span>
+          {(() => {
+            const recommendedWords = hasPriority ? priority : secondary;
+            const unsaved = recommendedWords.filter(w => !savedWords.has(w.word));
+            if (unsaved.length === 0) return null;
+            return (
+              <button
+                onClick={async () => {
+                  setSavingAllCommon(true);
+                  for (const w of unsaved) {
+                    await handleSave(w.word);
+                  }
+                  setSavingAllCommon(false);
+                }}
+                disabled={savingAllCommon}
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "#fff",
+                  background: savingAllCommon ? "#9ca3af" : "#22c55e",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "3px 8px",
+                  cursor: savingAllCommon ? "default" : "pointer",
+                  textTransform: "none",
+                  letterSpacing: "normal",
+                }}
+              >
+                {savingAllCommon ? "Saving..." : `Save All Recommended (${unsaved.length})`}
+              </button>
+            );
+          })()}
         </div>
 
-        {analysis.unknownWords.length === 0 ? (
+        {priority.length === 0 && secondary.length === 0 ? (
           <div style={{
             textAlign: "center",
             padding: "24px 0",
@@ -254,18 +329,127 @@ export function ReadingPanel({
             All words on this page are in your vocabulary!
           </div>
         ) : (
-          analysis.unknownWords.map((uw) => (
-            <WordRow
-              key={uw.lemma}
-              word={uw}
-              isSaving={savingWords.has(uw.word)}
-              isSaved={savedWords.has(uw.word)}
-              explanation={explanations[uw.word]}
-              isExplaining={explainingWord === uw.word}
-              onSave={() => handleSave(uw.word)}
-              onExplain={() => handleExplain(uw.word)}
-            />
-          ))
+          <>
+            {/* Priority section */}
+            {hasPriority ? (
+              <>
+                {groupByBand(priority).map(({ band, words: bandWords }) => (
+                  <div key={band} style={{ marginBottom: "12px" }}>
+                    <div style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      color: FREQ_BADGE[band].text,
+                      background: FREQ_BADGE[band].bg,
+                      padding: "3px 8px",
+                      borderRadius: "6px",
+                      marginBottom: "6px",
+                      display: "inline-block",
+                    }}>
+                      {BAND_HEADERS[band]} ({bandWords.length})
+                    </div>
+                    {bandWords.map((uw) => (
+                      <WordRow
+                        key={uw.lemma}
+                        word={uw}
+                        isSaving={savingWords.has(uw.word)}
+                        isSaved={savedWords.has(uw.word)}
+                        explanation={explanations[uw.word]}
+                        isExplaining={explainingWord === uw.word}
+                        onSave={() => handleSave(uw.word)}
+                        onExplain={() => handleExplain(uw.word)}
+                      />
+                    ))}
+                  </div>
+                ))}
+
+                {/* Secondary section — collapsed */}
+                {secondary.length > 0 && (
+                  <details style={{ marginTop: "12px" }}>
+                    <summary style={{
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      color: "#6b7280",
+                      cursor: "pointer",
+                      padding: "6px 0",
+                      userSelect: "none",
+                    }}>
+                      Also on this page ({secondary.length})
+                    </summary>
+                    <div style={{ marginTop: "8px" }}>
+                      {groupByBand(secondary).map(({ band, words: bandWords }) => (
+                        <div key={band} style={{ marginBottom: "12px" }}>
+                          <div style={{
+                            fontSize: "11px",
+                            fontWeight: 600,
+                            color: FREQ_BADGE[band].text,
+                            background: FREQ_BADGE[band].bg,
+                            padding: "3px 8px",
+                            borderRadius: "6px",
+                            marginBottom: "6px",
+                            display: "inline-block",
+                          }}>
+                            {BAND_HEADERS[band]} ({bandWords.length})
+                          </div>
+                          {bandWords.map((uw) => (
+                            <WordRow
+                              key={uw.lemma}
+                              word={uw}
+                              isSaving={savingWords.has(uw.word)}
+                              isSaved={savedWords.has(uw.word)}
+                              explanation={explanations[uw.word]}
+                              isExplaining={explainingWord === uw.word}
+                              onSave={() => handleSave(uw.word)}
+                              onExplain={() => handleExplain(uw.word)}
+                            />
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </>
+            ) : (
+              <>
+                {/* No priority words — show secondary as main with note */}
+                <div style={{
+                  fontSize: "12px",
+                  color: "#6b7280",
+                  fontStyle: "italic",
+                  marginBottom: "8px",
+                }}>
+                  No words at your target level — showing all unknown words
+                </div>
+                {groupByBand(secondary).map(({ band, words: bandWords }) => (
+                  <div key={band} style={{ marginBottom: "12px" }}>
+                    <div style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      color: FREQ_BADGE[band].text,
+                      background: FREQ_BADGE[band].bg,
+                      padding: "3px 8px",
+                      borderRadius: "6px",
+                      marginBottom: "6px",
+                      display: "inline-block",
+                    }}>
+                      {BAND_HEADERS[band]} ({bandWords.length})
+                    </div>
+                    {bandWords.map((uw) => (
+                      <WordRow
+                        key={uw.lemma}
+                        word={uw}
+                        isSaving={savingWords.has(uw.word)}
+                        isSaved={savedWords.has(uw.word)}
+                        explanation={explanations[uw.word]}
+                        isExplaining={explainingWord === uw.word}
+                        onSave={() => handleSave(uw.word)}
+                        onExplain={() => handleExplain(uw.word)}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </>
+            )}
+          </>
         )}
       </div>
 

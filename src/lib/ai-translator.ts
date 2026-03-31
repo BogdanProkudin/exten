@@ -1,6 +1,11 @@
 // AI Translator - Smart context-aware translation system
 // Provides better translations than basic services by understanding context
 
+/** Strip characters that could break out of prompt template quotes */
+function sanitizeForPrompt(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, " ").replace(/\r/g, "");
+}
+
 export interface TranslationContext {
   sourceText: string;
   surroundingText: string; // Context around the word/phrase
@@ -112,8 +117,8 @@ export class AITranslator {
   private buildTranslationPrompt(word: string, context: TranslationContext): string {
     return `You are an expert language teacher providing comprehensive translation and learning information.
 
-Word/phrase to translate: "${word}"
-Context: "${context.surroundingText}"
+Word/phrase to translate: "${sanitizeForPrompt(word)}"
+Context: "${sanitizeForPrompt(context.surroundingText)}"
 Domain: ${context.domain}
 Content type: ${context.contentType}
 User level: ${context.userLevel}
@@ -153,10 +158,10 @@ Focus on practical learning value for ${context.userLevel} level. Consider the $
   }
 
   private buildExplanationPrompt(word: string, context: TranslationContext): string {
-    return `Explain why "${word}" has a specific meaning in this context:
+    return `Explain why "${sanitizeForPrompt(word)}" has a specific meaning in this context:
 
-Word: "${word}"
-Context: "${context.surroundingText}"
+Word: "${sanitizeForPrompt(word)}"
+Context: "${sanitizeForPrompt(context.surroundingText)}"
 Domain: ${context.domain}
 Content type: ${context.contentType}
 
@@ -176,8 +181,8 @@ Be clear and educational for a ${context.userLevel} learner.`;
   private buildBatchPrompt(words: string[], context: TranslationContext): string {
     return `Translate these ${words.length} words/phrases in the context of ${context.contentType} content:
 
-Words: ${words.map(w => `"${w}"`).join(', ')}
-Context: "${context.surroundingText}"
+Words: ${words.map(w => `"${sanitizeForPrompt(w)}"`).join(', ')}
+Context: "${sanitizeForPrompt(context.surroundingText)}"
 Domain: ${context.domain}
 User level: ${context.userLevel}
 
@@ -199,10 +204,10 @@ Keep translations concise but accurate for ${context.userLevel} level.`;
   }
 
   private buildAmbiguityPrompt(word: string, context: TranslationContext): string {
-    return `Check if "${word}" is ambiguous in this context and needs clarification:
+    return `Check if "${sanitizeForPrompt(word)}" is ambiguous in this context and needs clarification:
 
-Word: "${word}"
-Context: "${context.surroundingText}"
+Word: "${sanitizeForPrompt(word)}"
+Context: "${sanitizeForPrompt(context.surroundingText)}"
 
 JSON response:
 {
@@ -474,7 +479,7 @@ export async function getAITranslator(): Promise<AITranslator | null> {
   if (!aiTranslator) {
     try {
       // Get API key from storage
-      const config = await chrome.storage.sync.get(['openaiApiKey', 'translationModel']) as any;
+      const config = await chrome.storage.local.get(['openaiApiKey', 'translationModel']) as any;
       
       if (!config?.openaiApiKey) {
         console.warn('No OpenAI API key configured for AI translation');

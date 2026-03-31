@@ -1,35 +1,14 @@
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { useEffect, useState, useCallback } from "react";
 import { Onboarding } from "./Onboarding";
-
-interface GamificationStats {
-  currentStreak: number;
-  longestStreak: number;
-  totalXp: number;
-  level: number;
-  dailyXp: number;
-  dailyGoalXp: number;
-  dailyWordsLearned: number;
-  dailyReviewsDone: number;
-  xpProgress: { current: number; needed: number; progress: number };
-}
-
-interface Achievement {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  xp: number;
-  unlocked: boolean;
-  unlockedAt?: number;
-}
+import { ErrorBoundary } from "../../src/components/ErrorBoundary";
+import { OwlAvatar } from "../../src/components/OwlAvatar";
+import { type TtsSettings, type TtsEngine, type OpenAIVoice, loadTtsSettings, saveTtsSettings, getAvailableVoices, playPreview } from "../../src/lib/tts";
 
 export default function App() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [quickReviewActive, setQuickReviewActive] = useState(false);
-  const [gamificationStats, setGamificationStats] = useState<GamificationStats | null>(null);
-  const [newAchievement, setNewAchievement] = useState<Achievement | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
 
@@ -45,6 +24,46 @@ export default function App() {
     });
   }, []);
   
+  const stats = useQuery(
+    api.words.stats,
+    deviceId ? { deviceId } : "skip",
+  );
+
+  const dailyProgress = useQuery(
+    api.gamification.getDailyProgress,
+    deviceId ? { deviceId } : "skip",
+  );
+
+  const setDailyGoalMutation = useMutation(api.gamification.setDailyGoal);
+
+  const [statsTimeout, setStatsTimeout] = useState(false);
+  useEffect(() => {
+    if (stats !== undefined) return;
+    const timer = setTimeout(() => setStatsTimeout(true), 10_000);
+    return () => clearTimeout(timer);
+  }, [stats]);
+
+  // Read DND state and settings
+  const [dndUntil, setDndUntil] = useState<number | null>(null);
+  const [reviewInterval, setReviewInterval] = useState(30);
+  const [maxToastsPerDay, setMaxToastsPerDay] = useState(15);
+  const [excludedDomains, setExcludedDomains] = useState<string[]>([]);
+  const [newDomain, setNewDomain] = useState("");
+  const [currentDomain, setCurrentDomain] = useState<string | null>(null);
+  const [readingAssistantEnabled, setReadingAssistantEnabled] = useState(true);
+  const [radarEnabled, setRadarEnabled] = useState(true);
+  const [youtubeSubtitlesEnabled, setYoutubeSubtitlesEnabled] = useState(true);
+  const [targetLang, setTargetLang] = useState("ru");
+  const [userLevel, setUserLevel] = useState("B1");
+  const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
+  const [showReviewTimer, setShowReviewTimer] = useState(true);
+  const [dailyGoalWords, setDailyGoalWords] = useState(10);
+  const [reviewMode, setReviewMode] = useState<"smart" | "classic">("smart");
+  const [ttsSettings, setTtsSettings] = useState<TtsSettings>({ engine: "google", voiceURI: null, rate: 0.9, pitch: 1.0, openaiVoice: "nova" });
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
   const handleOnboardingComplete = (settings: { targetLang: string; userLevel: string; dailyGoal: number }) => {
     chrome.storage.sync.set({
       onboardingComplete: true,
@@ -57,59 +76,11 @@ export default function App() {
     setShowOnboarding(false);
   };
 
-  // Fetch gamification stats and check for new achievements
-  useEffect(() => {
-    if (!deviceId) return;
-    chrome.runtime.sendMessage({ type: "GET_STATS" })
-      .then((res) => {
-        if (res?.success && res.stats) {
-          setGamificationStats(res.stats);
-        }
-      })
-      .catch((e) => console.error("[Vocabify] Failed to get stats:", e));
-    
-    // Check for unnotified achievements
-    chrome.runtime.sendMessage({ type: "GET_ACHIEVEMENTS" })
-      .then((res) => {
-        if (res?.success && res.achievements) {
-          const unnotified = res.achievements.find(
-            (a: Achievement) => a.unlocked && a.unlockedAt && Date.now() - a.unlockedAt < 60000
-          );
-          if (unnotified) {
-            setNewAchievement(unnotified);
-            // Auto-dismiss after 5s
-            setTimeout(() => setNewAchievement(null), 5000);
-          }
-        }
-      })
-      .catch((e) => console.error("[Vocabify] Failed to get achievements:", e));
-  }, [deviceId]);
-
-  const stats = useQuery(
-    api.words.stats,
-    deviceId ? { deviceId } : "skip",
-  );
-
-  // Read DND state and settings
-  const [dndUntil, setDndUntil] = useState<number | null>(null);
-  const [reviewInterval, setReviewInterval] = useState(30);
-  const [maxToastsPerDay, setMaxToastsPerDay] = useState(15);
-  const [excludedDomains, setExcludedDomains] = useState<string[]>([]);
-  const [newDomain, setNewDomain] = useState("");
-  const [currentDomain, setCurrentDomain] = useState<string | null>(null);
-  const [readingAssistantEnabled, setReadingAssistantEnabled] = useState(true);
-  const [radarEnabled, setRadarEnabled] = useState(true);
-  const [showDifficultyBadge, setShowDifficultyBadge] = useState(true);
-  const [youtubeSubtitlesEnabled, setYoutubeSubtitlesEnabled] = useState(true);
-  const [targetLang, setTargetLang] = useState("ru");
-  const [userLevel, setUserLevel] = useState("B1");
-  const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
-
   useEffect(() => {
     chrome.storage.sync.get([
       "dndUntil", "reviewIntervalMinutes", "excludedDomains", "maxToastsPerDay",
-      "readingAssistantEnabled", "radarEnabled", "showDifficultyBadge", "youtubeSubtitlesEnabled",
-      "targetLang", "userLevel", "theme",
+      "readingAssistantEnabled", "radarEnabled", "youtubeSubtitlesEnabled",
+      "targetLang", "userLevel", "theme", "showReviewTimer", "dailyGoalXp", "reviewMode",
     ]).then((data: Record<string, unknown>) => {
       if (data.dndUntil) setDndUntil(data.dndUntil as number);
       if (data.reviewIntervalMinutes) setReviewInterval(data.reviewIntervalMinutes as number);
@@ -117,11 +88,17 @@ export default function App() {
       if (data.maxToastsPerDay) setMaxToastsPerDay(data.maxToastsPerDay as number);
       if (data.readingAssistantEnabled !== undefined) setReadingAssistantEnabled(data.readingAssistantEnabled as boolean);
       if (data.radarEnabled !== undefined) setRadarEnabled(data.radarEnabled as boolean);
-      if (data.showDifficultyBadge !== undefined) setShowDifficultyBadge(data.showDifficultyBadge as boolean);
       if (data.youtubeSubtitlesEnabled !== undefined) setYoutubeSubtitlesEnabled(data.youtubeSubtitlesEnabled as boolean);
       if (data.targetLang) setTargetLang(data.targetLang as string);
       if (data.userLevel) setUserLevel(data.userLevel as string);
       if (data.theme) setTheme(data.theme as "light" | "dark" | "system");
+      if (data.showReviewTimer !== undefined) setShowReviewTimer(data.showReviewTimer as boolean);
+      if (data.reviewMode) setReviewMode(data.reviewMode as "smart" | "classic");
+      if (data.dailyGoalXp) {
+        // dailyGoalXp is stored as word count * 10 (legacy naming)
+        const xp = data.dailyGoalXp as number;
+        setDailyGoalWords(Math.round(xp / 10));
+      }
     });
     // Get current tab domain
     chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
@@ -130,6 +107,15 @@ export default function App() {
           setCurrentDomain(new URL(tab.url).hostname);
         } catch { /* ignore invalid URLs */ }
       }
+    });
+  }, []);
+
+  // Load TTS settings and available voices
+  useEffect(() => {
+    loadTtsSettings().then(setTtsSettings);
+    getAvailableVoices().then(setVoices);
+    chrome.storage.local.get("openaiApiKey").then((d) => {
+      if (d.openaiApiKey) setOpenaiApiKey(d.openaiApiKey as string);
     });
   }, []);
 
@@ -154,9 +140,9 @@ export default function App() {
     chrome.alarms.create("vocabify-review", { periodInMinutes: minutes });
   };
 
-  const openNewTab = (tab?: string) => {
-    const url = chrome.runtime.getURL("/newtab.html");
-    chrome.tabs.create({ url: tab ? `${url}#${tab}` : url });
+  const openDashboard = (tab?: string) => {
+    chrome.runtime.sendMessage({ type: "OPEN_DASHBOARD", hash: tab });
+    window.close();
   };
 
   // Determine if dark mode should be active
@@ -176,81 +162,35 @@ export default function App() {
   }
 
   return (
+    <ErrorBoundary>
     <div className={`w-[340px] p-4 ${isDark ? "bg-gray-900 text-white" : "bg-white"}`}>
-      {/* Achievement Toast */}
-      {newAchievement && (
-        <div 
-          className="mb-3 p-3 bg-gradient-to-r from-yellow-400 to-orange-400 rounded-xl text-white animate-bounce-in"
-          onClick={() => setNewAchievement(null)}
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">{newAchievement.icon}</span>
-            <div>
-              <p className="font-bold text-sm">🎉 Achievement Unlocked!</p>
-              <p className="text-xs font-medium">{newAchievement.name}</p>
-              <p className="text-xs opacity-90">+{newAchievement.xp} XP</p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Header with Streak */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">V</span>
-          </div>
+          <OwlAvatar size={38} />
           <h1 className={`text-lg font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>Vocabify</h1>
         </div>
-        {gamificationStats && gamificationStats.currentStreak > 0 && (
-          <div className="flex items-center gap-1 px-2 py-1 bg-orange-50 rounded-lg">
-            <span className="text-lg">🔥</span>
-            <span className="text-sm font-bold text-orange-600">{gamificationStats.currentStreak}</span>
-          </div>
-        )}
       </div>
 
-      {/* Gamification Stats Bar */}
-      {gamificationStats && (
-        <div className={`mb-4 p-3 rounded-xl ${isDark ? "bg-gradient-to-r from-blue-900/50 to-purple-900/50" : "bg-gradient-to-r from-blue-50 to-purple-50"}`}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
-                LVL {gamificationStats.level}
-              </span>
-              <span className={`text-xs ${isDark ? "text-gray-300" : "text-gray-600"}`}>
-                {gamificationStats.totalXp} XP
-              </span>
-            </div>
-            <span className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
-              {gamificationStats.xpProgress.current}/{gamificationStats.xpProgress.needed} to next
-            </span>
-          </div>
-          {/* XP Progress Bar */}
-          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
-              style={{ width: `${gamificationStats.xpProgress.progress}%` }}
-            />
-          </div>
-          {/* Daily Progress */}
-          <div className="flex items-center justify-between mt-2 text-xs">
-            <span className="text-gray-600">
-              Today: {gamificationStats.dailyXp}/{gamificationStats.dailyGoalXp} XP
-            </span>
-            {gamificationStats.dailyXp >= gamificationStats.dailyGoalXp && (
-              <span className="text-green-600 font-medium">✓ Goal complete!</span>
-            )}
-          </div>
-        </div>
-      )}
-
       {!stats ? (
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-16 bg-gray-100 rounded-lg animate-pulse" />
-          ))}
-        </div>
+        statsTimeout ? (
+          <div className="text-center py-4 mb-4">
+            <p className="text-xs text-gray-500 mb-2">Having trouble connecting...</p>
+            <button
+              onClick={() => { setStatsTimeout(false); window.location.reload(); }}
+              className="text-xs text-blue-500 hover:text-blue-600 font-medium"
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-16 bg-gray-100 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-2 gap-2 mb-4">
           {([
@@ -264,6 +204,36 @@ export default function App() {
         </div>
       )}
 
+      {/* Daily Progress */}
+      {dailyProgress && (
+        <div className={`flex items-center gap-2 mb-2 px-1 py-1.5 rounded-lg ${isDark ? "bg-gray-800" : "bg-gray-50"}`}>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.min(100, dailyProgress.goalTarget > 0 ? (dailyProgress.totalToday / dailyProgress.goalTarget) * 100 : 0)}%`,
+                    background: dailyProgress.totalToday >= dailyProgress.goalTarget ? "#22c55e" : "#3b82f6",
+                  }}
+                />
+              </div>
+              <span className={`text-xs font-medium shrink-0 ${isDark ? "text-gray-300" : "text-gray-600"}`}>
+                {dailyProgress.totalToday}/{dailyProgress.goalTarget}
+              </span>
+            </div>
+          </div>
+          {dailyProgress.streak > 1 && (
+            <span className="text-xs font-semibold text-orange-500 shrink-0">
+              {dailyProgress.streak} 🔥
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Timer Countdown — hide when no words exist */}
+      {stats && stats.total > 0 && <ReviewCountdown isDark={isDark} />}
+
       {quickReviewActive && deviceId ? (
         <QuickReviewInline
           deviceId={deviceId}
@@ -273,7 +243,7 @@ export default function App() {
       <>
       {/* Primary CTA */}
       <button
-        onClick={() => openNewTab("review")}
+        onClick={() => openDashboard("review")}
         className="w-full py-2.5 px-4 bg-blue-500 text-white text-sm font-medium rounded-xl hover:bg-blue-600 transition-colors mb-2"
         style={{ borderRadius: "10px" }}
       >
@@ -283,35 +253,20 @@ export default function App() {
       {/* Secondary links */}
       <div className="flex justify-center gap-4 mb-2">
         <button
-          onClick={() => openNewTab("vocabulary")}
+          onClick={() => openDashboard("vocabulary")}
           className="text-xs text-blue-500 hover:text-blue-600 font-medium"
         >
           Vocabulary
         </button>
         <span className="text-gray-300">|</span>
         <button
-          onClick={() => openNewTab("hard")}
+          onClick={() => openDashboard("hard")}
           className="text-xs text-blue-500 hover:text-blue-600 font-medium"
         >
           Hard Words
         </button>
       </div>
 
-      {/* Quick Review — outline style */}
-      <button
-        onClick={() => setQuickReviewActive(true)}
-        className="w-full py-2 px-4 text-sm font-medium rounded-lg transition-colors mb-3"
-        style={{
-          border: "1px solid #e5e7eb",
-          background: "#fff",
-          color: "#374151",
-          borderRadius: "10px",
-        }}
-        onMouseEnter={(e) => { (e.target as HTMLElement).style.background = "#f9fafb"; }}
-        onMouseLeave={(e) => { (e.target as HTMLElement).style.background = "#fff"; }}
-      >
-        Quick Review (3 words)
-      </button>
 
       {/* DND Controls — stays top-level */}
       <div className="border-t border-gray-100 pt-3 mb-3">
@@ -396,6 +351,57 @@ export default function App() {
               <span>50</span>
             </div>
           </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-1 block">
+              Daily goal: {dailyGoalWords} words
+            </label>
+            <input
+              type="range"
+              min={1}
+              max={30}
+              value={dailyGoalWords}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setDailyGoalWords(val);
+                chrome.storage.sync.set({ dailyGoalXp: val * 10 });
+                if (deviceId) {
+                  setDailyGoalMutation({ deviceId, goal: val });
+                }
+              }}
+              className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            />
+            <div className="flex justify-between text-[10px] text-gray-500 mt-0.5">
+              <span>1</span>
+              <span>30</span>
+            </div>
+          </div>
+          <SettingToggle
+            label="Review Timer"
+            description="Show countdown to next review on pages"
+            checked={showReviewTimer}
+            onChange={(v) => {
+              setShowReviewTimer(v);
+              chrome.storage.sync.set({ showReviewTimer: v });
+            }}
+          />
+          <SettingToggle
+            label="Smart Reviews"
+            description="Test-based challenges instead of self-reporting"
+            checked={reviewMode === "smart"}
+            onChange={(v) => {
+              const mode = v ? "smart" : "classic";
+              setReviewMode(mode);
+              chrome.storage.sync.set({ reviewMode: mode });
+            }}
+          />
+          <button
+            onClick={() => {
+              chrome.storage.local.remove("vocabifyTips");
+            }}
+            className="mt-2 text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            Reset learning tips
+          </button>
         </div>
       </details>
 
@@ -490,6 +496,162 @@ export default function App() {
               ))}
             </div>
           </div>
+        </div>
+      </details>
+
+      {/* Collapsible: Voice & Pronunciation */}
+      <details className={`border-t ${isDark ? "border-gray-700" : "border-gray-100"} pt-2 mb-2`}>
+        <summary className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} cursor-pointer select-none py-1`}>
+          Voice & Pronunciation
+        </summary>
+        <div className="mt-2 space-y-3">
+          {/* Engine selector */}
+          <div>
+            <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} mb-1 block`}>Engine</label>
+            <div className="flex gap-1">
+              {([
+                { id: "google" as TtsEngine, label: "Google" },
+                { id: "openai" as TtsEngine, label: "OpenAI" },
+                { id: "browser" as TtsEngine, label: "Browser" },
+              ]).map((eng) => (
+                <button
+                  key={eng.id}
+                  onClick={() => {
+                    const updated = { ...ttsSettings, engine: eng.id };
+                    setTtsSettings(updated);
+                    saveTtsSettings(updated);
+                    setPreviewError(null);
+                  }}
+                  className={`flex-1 py-1.5 px-2 text-xs rounded-lg transition-colors ${
+                    ttsSettings.engine === eng.id
+                      ? "bg-blue-500 text-white"
+                      : isDark ? "bg-gray-800 text-gray-300 hover:bg-gray-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {eng.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* OpenAI options */}
+          {ttsSettings.engine === "openai" && (
+            <>
+              <div>
+                <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} mb-1 block`}>Voice</label>
+                <div className="grid grid-cols-3 gap-1">
+                  {(["alloy", "echo", "fable", "onyx", "nova", "shimmer"] as OpenAIVoice[]).map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => {
+                        const updated = { ...ttsSettings, openaiVoice: v };
+                        setTtsSettings(updated);
+                        saveTtsSettings(updated);
+                      }}
+                      className={`py-1 text-[10px] font-medium rounded-md transition-all capitalize ${
+                        ttsSettings.openaiVoice === v
+                          ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300"
+                          : isDark ? "bg-gray-800 text-gray-400 hover:bg-gray-700" : "bg-gray-50 text-gray-600 hover:bg-gray-100"
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} mb-1 block`}>API Key</label>
+                <input
+                  type="password"
+                  value={openaiApiKey}
+                  onChange={(e) => {
+                    setOpenaiApiKey(e.target.value);
+                    chrome.storage.local.set({ openaiApiKey: e.target.value });
+                  }}
+                  placeholder="sk-..."
+                  className={`w-full text-xs px-2 py-1.5 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700 text-gray-200" : "bg-white border-gray-200 text-gray-700"}`}
+                />
+              </div>
+            </>
+          )}
+
+          {/* Browser voice selector */}
+          {ttsSettings.engine === "browser" && (
+            <>
+              <div>
+                <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} mb-1 block`}>Voice</label>
+                <select
+                  value={ttsSettings.voiceURI ?? ""}
+                  onChange={(e) => {
+                    const updated = { ...ttsSettings, voiceURI: e.target.value || null };
+                    setTtsSettings(updated);
+                    saveTtsSettings(updated);
+                  }}
+                  className={`w-full text-xs px-2 py-1.5 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700 text-gray-200" : "bg-white border-gray-200 text-gray-700"}`}
+                >
+                  <option value="">System default</option>
+                  {voices.map((v) => (
+                    <option key={v.voiceURI} value={v.voiceURI}>
+                      {v.name} ({v.lang})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} mb-1 flex justify-between`}>
+                  <span>Pitch</span>
+                  <span className={`font-normal ${isDark ? "text-gray-500" : "text-gray-400"}`}>
+                    {ttsSettings.pitch <= 0.7 ? "Low" : ttsSettings.pitch >= 1.3 ? "High" : "Normal"} ({ttsSettings.pitch.toFixed(1)})
+                  </span>
+                </label>
+                <input type="range" min="0.5" max="1.5" step="0.1" value={ttsSettings.pitch}
+                  onChange={(e) => {
+                    const updated = { ...ttsSettings, pitch: parseFloat(e.target.value) };
+                    setTtsSettings(updated);
+                    saveTtsSettings(updated);
+                  }}
+                  className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Speed — all engines */}
+          <div>
+            <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} mb-1 flex justify-between`}>
+              <span>Speed</span>
+              <span className={`font-normal ${isDark ? "text-gray-500" : "text-gray-400"}`}>
+                {ttsSettings.rate <= 0.7 ? "Slow" : ttsSettings.rate >= 1.2 ? "Fast" : "Normal"} ({ttsSettings.rate.toFixed(1)}x)
+              </span>
+            </label>
+            <input type="range" min="0.5" max="1.5" step="0.1" value={ttsSettings.rate}
+              onChange={(e) => {
+                const updated = { ...ttsSettings, rate: parseFloat(e.target.value) };
+                setTtsSettings(updated);
+                saveTtsSettings(updated);
+              }}
+              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            />
+          </div>
+
+          {previewError && (
+            <p className={`text-[10px] px-2 py-1 rounded ${isDark ? "bg-red-900/30 text-red-400" : "bg-red-50 text-red-500"}`}>{previewError}</p>
+          )}
+
+          <button
+            onClick={() => {
+              setPreviewError(null);
+              playPreview("Hello, vocabulary!", ttsSettings)
+                .catch((e: Error) => setPreviewError(e.message || "Preview failed"));
+            }}
+            className={`w-full text-xs py-1.5 rounded-lg transition-colors ${
+              isDark
+                ? "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            Preview voice
+          </button>
         </div>
       </details>
 
@@ -593,16 +755,6 @@ export default function App() {
               chrome.storage.sync.set({ radarEnabled: v });
             }}
           />
-          <SettingToggle
-            label="Difficulty Badge"
-            description="Show CEFR level badge on pages"
-            checked={showDifficultyBadge}
-            onChange={(v) => {
-              setShowDifficultyBadge(v);
-              chrome.storage.sync.set({ showDifficultyBadge: v });
-            }}
-          />
-
           {/* YouTube Integration */}
           <label className="text-xs font-medium text-gray-500 mb-2 block mt-3">
             Video Learning
@@ -625,6 +777,7 @@ export default function App() {
       </>
       )}
     </div>
+    </ErrorBoundary>
   );
 }
 
@@ -782,6 +935,56 @@ function StatCard({
     >
       <p className="text-2xl font-bold">{value}</p>
       <p className="text-xs opacity-70">{label}</p>
+    </div>
+  );
+}
+
+function ReviewCountdown({ isDark }: { isDark: boolean }) {
+  const [nextReviewAt, setNextReviewAt] = useState<number | null>(null);
+  const [remainingMs, setRemainingMs] = useState(0);
+
+  useEffect(() => {
+    chrome.runtime.sendMessage({ type: "GET_TIMER_STATE" }).then((res) => {
+      if (res?.nextReviewAt) setNextReviewAt(res.nextReviewAt);
+    }).catch(() => {});
+
+    const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === "session" && changes.vocabifyTimerState?.newValue?.nextReviewAt) {
+        setNextReviewAt(changes.vocabifyTimerState.newValue.nextReviewAt);
+      }
+    };
+    chrome.storage.onChanged.addListener(onChange);
+    return () => chrome.storage.onChanged.removeListener(onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!nextReviewAt) return;
+    setRemainingMs(Math.max(0, nextReviewAt - Date.now()));
+    const interval = setInterval(() => {
+      setRemainingMs(Math.max(0, nextReviewAt - Date.now()));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [nextReviewAt]);
+
+  if (!nextReviewAt) return null;
+
+  const textClass = isDark ? "text-gray-400" : "text-gray-500";
+
+  if (remainingMs <= 0) {
+    return (
+      <div className={`text-center text-xs mb-2 font-medium ${isDark ? "text-amber-400" : "text-amber-600"}`}>
+        Review incoming...
+      </div>
+    );
+  }
+
+  const s = Math.ceil(remainingMs / 1000);
+  const time = `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+
+  return (
+    <div className={`text-center text-xs mb-2 font-medium ${textClass}`}
+      style={{ animation: "fadeInUp 200ms cubic-bezier(0.0, 0.0, 0.2, 1.0) both" }}>
+      Next review in {time}
     </div>
   );
 }

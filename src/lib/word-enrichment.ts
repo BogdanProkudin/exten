@@ -1,3 +1,6 @@
+import { getFromStore, putInStore } from "./indexed-db";
+import { lookupLocal } from "./local-dictionary";
+
 export interface WordEnrichment {
   synonyms: string[];
   antonyms: string[];
@@ -9,73 +12,61 @@ export interface WordEnrichment {
 interface CacheEntry {
   data: WordEnrichment;
   timestamp: number;
+  version?: number;
 }
 
-const CACHE_KEY = "vocabifyEnrichment";
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
-const CACHE_MAX_ENTRIES = 200;
-
-async function getCache(): Promise<Record<string, CacheEntry>> {
-  try {
-    const result = await chrome.storage.local.get(CACHE_KEY);
-    return (result[CACHE_KEY] as Record<string, CacheEntry>) || {};
-  } catch {
-    return {};
-  }
-}
-
-async function setCache(cache: Record<string, CacheEntry>): Promise<void> {
-  try {
-    // Limit cache to CACHE_MAX_ENTRIES, remove oldest when full
-    const entries = Object.entries(cache);
-    if (entries.length > CACHE_MAX_ENTRIES) {
-      entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
-      cache = Object.fromEntries(entries.slice(0, CACHE_MAX_ENTRIES));
-    }
-    await chrome.storage.local.set({ [CACHE_KEY]: cache });
-  } catch {
-    // Silently fail on cache write errors
-  }
-}
+const ENRICHMENT_CACHE_VERSION = 2;
+const DATAMUSE_MIN_SCORE = 1000;
 
 export async function getWordEnrichment(word: string): Promise<WordEnrichment | null> {
   try {
     const normalizedWord = word.toLowerCase().trim();
     if (!normalizedWord || normalizedWord.includes(" ")) return null;
 
-    // 1. Check cache first
-    const cache = await getCache();
-    const cached = cache[normalizedWord];
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    // 1. Check IndexedDB enrichment cache
+    const cached = await getFromStore<CacheEntry>("enrichment", normalizedWord);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL && cached.version === ENRICHMENT_CACHE_VERSION) {
       return cached.data;
     }
 
-    // 2. Fetch from Free Dictionary API and Datamuse API in parallel
-    const [dictResult, synResult, antResult] = await Promise.allSettled([
-      fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(normalizedWord)}`),
+    // 2. Check local dictionary (10K common words) for definitions/phonetics
+    const localEntry = await lookupLocal(normalizedWord);
+
+    // 3. Fetch from Free Dictionary API (skip if local dict has data) and Datamuse API in parallel
+    const fetchPromises: [Promise<Response>, Promise<Response>, Promise<Response>] = [
+      localEntry
+        ? Promise.reject("skip") as unknown as Promise<Response>
+        : fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(normalizedWord)}`),
       fetch(`https://api.datamuse.com/words?rel_syn=${encodeURIComponent(normalizedWord)}&max=5`),
       fetch(`https://api.datamuse.com/words?rel_ant=${encodeURIComponent(normalizedWord)}&max=5`),
-    ]);
+    ];
+    const [dictResult, synResult, antResult] = await Promise.allSettled(fetchPromises);
 
     const enrichment: WordEnrichment = {
       synonyms: [],
       antonyms: [],
-      definitions: [],
+      definitions: localEntry
+        ? localEntry.definitions.map((d) => ({
+            partOfSpeech: d.pos,
+            definition: d.def,
+            example: d.example,
+          }))
+        : [],
+      phonetic: localEntry?.phonetic,
     };
 
-    // 3. Parse Free Dictionary API response
+    // 4. Parse Free Dictionary API response (only for definitions/phonetics, NOT synonyms)
     if (dictResult.status === "fulfilled" && dictResult.value.ok) {
       try {
         const dictData = await dictResult.value.json();
         if (Array.isArray(dictData) && dictData.length > 0) {
           const entry = dictData[0];
 
-          // Phonetic
           if (entry.phonetic) {
             enrichment.phonetic = entry.phonetic;
           }
 
-          // Phonetic audio
           if (Array.isArray(entry.phonetics)) {
             for (const p of entry.phonetics) {
               if (p.audio) {
@@ -88,30 +79,15 @@ export async function getWordEnrichment(word: string): Promise<WordEnrichment | 
             }
           }
 
-          // Meanings: definitions, synonyms, antonyms
           if (Array.isArray(entry.meanings)) {
             for (const meaning of entry.meanings) {
               const partOfSpeech = meaning.partOfSpeech || "unknown";
 
-              // Collect synonyms from meanings
-              if (Array.isArray(meaning.synonyms)) {
-                for (const syn of meaning.synonyms) {
-                  if (enrichment.synonyms.length < 10 && !enrichment.synonyms.includes(syn)) {
-                    enrichment.synonyms.push(syn);
-                  }
-                }
-              }
+              // NOTE: We intentionally skip Free Dictionary synonyms/antonyms here.
+              // They are WordNet-derived and include loose hypernyms/related words
+              // that create spurious edges in the Word Map. Datamuse rel_syn/rel_ant
+              // with score filtering is the sole source for synonyms/antonyms.
 
-              // Collect antonyms from meanings
-              if (Array.isArray(meaning.antonyms)) {
-                for (const ant of meaning.antonyms) {
-                  if (enrichment.antonyms.length < 10 && !enrichment.antonyms.includes(ant)) {
-                    enrichment.antonyms.push(ant);
-                  }
-                }
-              }
-
-              // Collect definitions
               if (Array.isArray(meaning.definitions)) {
                 for (const def of meaning.definitions) {
                   if (enrichment.definitions.length < 5) {
@@ -121,22 +97,6 @@ export async function getWordEnrichment(word: string): Promise<WordEnrichment | 
                       ...(def.example && { example: def.example }),
                     });
                   }
-
-                  // Also collect synonyms/antonyms from individual definitions
-                  if (Array.isArray(def.synonyms)) {
-                    for (const syn of def.synonyms) {
-                      if (enrichment.synonyms.length < 10 && !enrichment.synonyms.includes(syn)) {
-                        enrichment.synonyms.push(syn);
-                      }
-                    }
-                  }
-                  if (Array.isArray(def.antonyms)) {
-                    for (const ant of def.antonyms) {
-                      if (enrichment.antonyms.length < 10 && !enrichment.antonyms.includes(ant)) {
-                        enrichment.antonyms.push(ant);
-                      }
-                    }
-                  }
                 }
               }
             }
@@ -147,13 +107,18 @@ export async function getWordEnrichment(word: string): Promise<WordEnrichment | 
       }
     }
 
-    // 4. Parse Datamuse synonyms
+    // 5. Parse Datamuse synonyms (with score filtering)
     if (synResult.status === "fulfilled" && synResult.value.ok) {
       try {
         const synData = await synResult.value.json();
         if (Array.isArray(synData)) {
           for (const item of synData) {
-            if (item.word && enrichment.synonyms.length < 10 && !enrichment.synonyms.includes(item.word)) {
+            if (
+              item.word &&
+              (item.score ?? 0) >= DATAMUSE_MIN_SCORE &&
+              enrichment.synonyms.length < 10 &&
+              !enrichment.synonyms.includes(item.word)
+            ) {
               enrichment.synonyms.push(item.word);
             }
           }
@@ -163,13 +128,18 @@ export async function getWordEnrichment(word: string): Promise<WordEnrichment | 
       }
     }
 
-    // 5. Parse Datamuse antonyms
+    // 6. Parse Datamuse antonyms (with score filtering)
     if (antResult.status === "fulfilled" && antResult.value.ok) {
       try {
         const antData = await antResult.value.json();
         if (Array.isArray(antData)) {
           for (const item of antData) {
-            if (item.word && enrichment.antonyms.length < 10 && !enrichment.antonyms.includes(item.word)) {
+            if (
+              item.word &&
+              (item.score ?? 0) >= DATAMUSE_MIN_SCORE &&
+              enrichment.antonyms.length < 10 &&
+              !enrichment.antonyms.includes(item.word)
+            ) {
               enrichment.antonyms.push(item.word);
             }
           }
@@ -179,13 +149,34 @@ export async function getWordEnrichment(word: string): Promise<WordEnrichment | 
       }
     }
 
-    // 6. Cache and return
-    cache[normalizedWord] = { data: enrichment, timestamp: Date.now() };
-    await setCache(cache);
+    // 7. Cache in IndexedDB (no size limit unlike chrome.storage.local)
+    await putInStore("enrichment", normalizedWord, {
+      data: enrichment,
+      timestamp: Date.now(),
+      version: ENRICHMENT_CACHE_VERSION,
+    });
 
     return enrichment;
   } catch {
-    // Never throw
     return null;
   }
+}
+
+/** Batch enrichment for multiple words (used by Word Map). */
+export async function getEnrichmentBatch(
+  words: string[],
+): Promise<Map<string, WordEnrichment>> {
+  const results = new Map<string, WordEnrichment>();
+  // Fetch in parallel, max 5 concurrent
+  const CONCURRENCY = 5;
+  for (let i = 0; i < words.length; i += CONCURRENCY) {
+    const batch = words.slice(i, i + CONCURRENCY);
+    const settled = await Promise.allSettled(
+      batch.map(async (w) => {
+        const enrichment = await getWordEnrichment(w);
+        if (enrichment) results.set(w.toLowerCase(), enrichment);
+      }),
+    );
+  }
+  return results;
 }

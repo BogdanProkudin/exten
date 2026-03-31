@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import type { CEFRLevel, PageAnalysisResult } from "../../src/lib/page-analyzer";
 import { shouldShowTip, markTipSeen, dismissTipForever, incrementCounter } from "../../src/lib/tips";
+import { getLevelAwareComprehension } from "../../src/lib/level-filter";
 
 interface ReadingBadgeProps {
   analysis: PageAnalysisResult;
+  userLevel: string;
   onClick: () => void;
 }
 
@@ -14,8 +16,13 @@ const CEFR_COLORS: Record<CEFRLevel, { bg: string; text: string; border: string 
   C1: { bg: "#fee2e2", text: "#991b1b", border: "#fecaca" },
 };
 
-export function ReadingBadge({ analysis, onClick }: ReadingBadgeProps) {
+export function ReadingBadge({ analysis, userLevel, onClick }: ReadingBadgeProps) {
   const colors = CEFR_COLORS[analysis.difficultyLevel];
+  const comprehension = getLevelAwareComprehension(
+    analysis.totalUniqueWords,
+    analysis.unknownWords,
+    userLevel,
+  );
   const [tipVisible, setTipVisible] = useState(false);
 
   // Check if we should show the badge click tip
@@ -49,10 +56,10 @@ export function ReadingBadge({ analysis, onClick }: ReadingBadgeProps) {
             background: "#1D1D1F",
             color: "#fff",
             borderRadius: "8px",
-            padding: "8px 12px",
-            fontSize: "12px",
+            padding: "6px 10px",
+            fontSize: "11px",
             lineHeight: 1.4,
-            width: "200px",
+            width: "180px",
             animation: "fadeInUp 200ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
             display: "flex",
             alignItems: "flex-start",
@@ -90,14 +97,14 @@ export function ReadingBadge({ analysis, onClick }: ReadingBadgeProps) {
           cursor: "pointer",
           display: "flex",
           alignItems: "center",
-          gap: "6px",
-          padding: "6px 12px",
-          borderRadius: "20px",
+          gap: "4px",
+          padding: "3px 8px",
+          borderRadius: "14px",
           background: colors.bg,
           border: `1px solid ${colors.border}`,
           boxShadow: "0 2px 12px rgba(0,0,0,.1)",
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          fontSize: "13px",
+          fontSize: "11px",
           fontWeight: 600,
           color: colors.text,
           transition: "transform 150ms ease, box-shadow 150ms ease",
@@ -117,30 +124,30 @@ export function ReadingBadge({ analysis, onClick }: ReadingBadgeProps) {
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          width: "24px",
-          height: "24px",
-          borderRadius: "12px",
+          width: "18px",
+          height: "18px",
+          borderRadius: "9px",
           background: colors.text,
           color: "#fff",
-          fontSize: "11px",
+          fontSize: "9px",
           fontWeight: 700,
         }}>
           {analysis.difficultyLevel}
         </span>
-        <span>{analysis.comprehensionPercent}% known</span>
+        <span>{comprehension}% known</span>
         {analysis.unknownWordCount > 0 && (
           <span style={{
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            minWidth: "18px",
-            height: "18px",
-            borderRadius: "9px",
+            minWidth: "14px",
+            height: "14px",
+            borderRadius: "7px",
             background: colors.text,
             color: "#fff",
-            fontSize: "10px",
+            fontSize: "8px",
             fontWeight: 700,
-            padding: "0 5px",
+            padding: "0 4px",
           }}>
             {analysis.unknownWordCount > 99 ? "99+" : analysis.unknownWordCount}
           </span>

@@ -1,22 +1,24 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
 
 interface OnboardingProps {
   onComplete: (settings: { targetLang: string; userLevel: string; dailyGoal: number }) => void;
 }
 
 const LANGUAGES = [
-  { code: "ru", name: "Russian", flag: "🇷🇺" },
-  { code: "es", name: "Spanish", flag: "🇪🇸" },
-  { code: "fr", name: "French", flag: "🇫🇷" },
-  { code: "de", name: "German", flag: "🇩🇪" },
-  { code: "it", name: "Italian", flag: "🇮🇹" },
-  { code: "pt", name: "Portuguese", flag: "🇵🇹" },
-  { code: "zh", name: "Chinese", flag: "🇨🇳" },
-  { code: "ja", name: "Japanese", flag: "🇯🇵" },
-  { code: "ko", name: "Korean", flag: "🇰🇷" },
-  { code: "uk", name: "Ukrainian", flag: "🇺🇦" },
-  { code: "pl", name: "Polish", flag: "🇵🇱" },
-  { code: "ar", name: "Arabic", flag: "🇸🇦" },
+  { code: "ru", name: "Russian", flag: "\u{1F1F7}\u{1F1FA}" },
+  { code: "es", name: "Spanish", flag: "\u{1F1EA}\u{1F1F8}" },
+  { code: "fr", name: "French", flag: "\u{1F1EB}\u{1F1F7}" },
+  { code: "de", name: "German", flag: "\u{1F1E9}\u{1F1EA}" },
+  { code: "it", name: "Italian", flag: "\u{1F1EE}\u{1F1F9}" },
+  { code: "pt", name: "Portuguese", flag: "\u{1F1F5}\u{1F1F9}" },
+  { code: "zh", name: "Chinese", flag: "\u{1F1E8}\u{1F1F3}" },
+  { code: "ja", name: "Japanese", flag: "\u{1F1EF}\u{1F1F5}" },
+  { code: "ko", name: "Korean", flag: "\u{1F1F0}\u{1F1F7}" },
+  { code: "uk", name: "Ukrainian", flag: "\u{1F1FA}\u{1F1E6}" },
+  { code: "pl", name: "Polish", flag: "\u{1F1F5}\u{1F1F1}" },
+  { code: "ar", name: "Arabic", flag: "\u{1F1F8}\u{1F1E6}" },
 ];
 
 const LEVELS = [
@@ -33,13 +35,47 @@ const GOALS = [
   { xp: 300, words: "~30", label: "Intense", desc: "Maximum growth" },
 ];
 
+// Map XP-style values to word counts
+const XP_TO_WORDS: Record<number, number> = { 50: 5, 100: 10, 200: 20, 300: 30 };
+
 export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState(0);
   const [targetLang, setTargetLang] = useState("ru");
   const [userLevel, setUserLevel] = useState("B1");
   const [dailyGoal, setDailyGoal] = useState(100);
+  const setDailyGoalMutation = useMutation(api.gamification.setDailyGoal);
+
+  // Restore progress on mount
+  useEffect(() => {
+    chrome.storage.local.get("onboardingProgress").then((data) => {
+      if (data.onboardingProgress) {
+        const p = data.onboardingProgress as { step?: number; targetLang?: string; userLevel?: string; dailyGoal?: number };
+        if (p.step !== undefined) setStep(p.step);
+        if (p.targetLang) setTargetLang(p.targetLang);
+        if (p.userLevel) setUserLevel(p.userLevel);
+        if (p.dailyGoal) setDailyGoal(p.dailyGoal);
+      }
+    });
+  }, []);
+
+  // Persist progress on each state change
+  useEffect(() => {
+    chrome.storage.local.set({
+      onboardingProgress: { step, targetLang, userLevel, dailyGoal },
+    });
+  }, [step, targetLang, userLevel, dailyGoal]);
 
   const handleFinish = () => {
+    chrome.storage.local.remove("onboardingProgress");
+
+    // Sync daily goal to Convex
+    const mappedGoal = XP_TO_WORDS[dailyGoal] ?? Math.round(dailyGoal / 10);
+    chrome.runtime.sendMessage({ type: "GET_DEVICE_ID" }).then((res) => {
+      if (res?.deviceId) {
+        setDailyGoalMutation({ deviceId: res.deviceId, goal: mappedGoal });
+      }
+    }).catch(() => {});
+
     onComplete({ targetLang, userLevel, dailyGoal });
   };
 
@@ -60,9 +96,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       {/* Step 0: Welcome */}
       {step === 0 && (
         <div className="text-center">
-          <div className="w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white font-bold text-2xl">V</span>
-          </div>
+          <img src="/logo.png" alt="Vocabify" className="w-16 h-16 rounded-2xl mx-auto mb-4" />
           <h1 className="text-xl font-bold text-gray-900 mb-2">Welcome to Vocabify!</h1>
           <p className="text-sm text-gray-600 mb-6">
             Learn English vocabulary while browsing the web. Let's set you up in 30 seconds.
@@ -71,7 +105,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             onClick={() => setStep(1)}
             className="w-full py-3 bg-blue-500 text-white font-medium rounded-xl hover:bg-blue-600 transition-colors"
           >
-            Get Started →
+            Get Started
           </button>
         </div>
       )}
@@ -101,7 +135,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             onClick={() => setStep(2)}
             className="w-full py-3 bg-blue-500 text-white font-medium rounded-xl hover:bg-blue-600 transition-colors"
           >
-            Continue →
+            Continue
           </button>
         </div>
       )}
@@ -124,7 +158,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               >
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{level.code} - {level.name}</span>
-                  {userLevel === level.code && <span>✓</span>}
+                  {userLevel === level.code && <span>&#10003;</span>}
                 </div>
                 <p className={`text-xs ${userLevel === level.code ? "text-blue-100" : "text-gray-500"}`}>
                   {level.desc}
@@ -136,7 +170,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             onClick={() => setStep(3)}
             className="w-full py-3 bg-blue-500 text-white font-medium rounded-xl hover:bg-blue-600 transition-colors"
           >
-            Continue →
+            Continue
           </button>
         </div>
       )}
@@ -173,19 +207,27 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             onClick={handleFinish}
             className="w-full py-3 bg-green-500 text-white font-medium rounded-xl hover:bg-green-600 transition-colors"
           >
-            🎉 Start Learning!
+            Start Learning!
           </button>
         </div>
       )}
 
-      {/* Skip link */}
+      {/* Back + Skip links */}
       {step > 0 && (
-        <button
-          onClick={handleFinish}
-          className="w-full mt-3 text-xs text-gray-400 hover:text-gray-600"
-        >
-          Skip setup
-        </button>
+        <div className="flex items-center justify-between mt-3">
+          <button
+            onClick={() => setStep(step - 1)}
+            className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            &larr; Back
+          </button>
+          <button
+            onClick={handleFinish}
+            className="text-xs text-gray-400 hover:text-gray-600"
+          >
+            Skip setup
+          </button>
+        </div>
       )}
     </div>
   );

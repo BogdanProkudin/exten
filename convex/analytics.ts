@@ -1,12 +1,51 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
+import { computeRetrievability, cardFromWord } from "../src/lib/fsrs";
 
-// Helper: compute word strength inline (not imported from client code)
-function computeWordStrength(word: { consecutiveCorrect?: number; status: string }): number {
-  const strength =
-    (word.consecutiveCorrect || 0) * 15 +
-    (word.status === "known" ? 50 : word.status === "learning" ? 25 : 0);
-  return Math.max(0, Math.min(100, strength));
+// Canonical strength formula — mirrors src/lib/memory-strength.ts computeStrength()
+function computeWordStrength(word: {
+  intervalDays?: number;
+  consecutiveCorrect?: number;
+  forgotCount?: number;
+  lastReviewed?: number;
+  status: string;
+  reviewCount?: number;
+  fsrsStability?: number;
+  fsrsLastReview?: number;
+  fsrsState?: string;
+  fsrsDifficulty?: number;
+  fsrsElapsedDays?: number;
+  fsrsScheduledDays?: number;
+  fsrsReps?: number;
+  fsrsLapses?: number;
+}): number {
+  // FSRS path: strength = retrievability × 100
+  if (word.fsrsStability != null && word.fsrsLastReview != null && word.fsrsLastReview > 0) {
+    const card = cardFromWord(word as Parameters<typeof cardFromWord>[0]);
+    const R = computeRetrievability(card, Date.now());
+    return Math.round(R * 100);
+  }
+
+  // Legacy path (canonical formula)
+  const intervalDays = word.intervalDays ?? 1;
+  const consecutiveCorrect = word.consecutiveCorrect ?? 0;
+  const forgotCount = word.forgotCount ?? 0;
+  const lastReviewed = word.lastReviewed;
+
+  const intervalScore = Math.min(40, (Math.log2(intervalDays + 1) / Math.log2(91)) * 40);
+  const streakScore = Math.min(25, consecutiveCorrect * 5);
+  const forgetPenalty = Math.min(25, forgotCount * 5);
+
+  let recencyScore = 0;
+  if (lastReviewed) {
+    const daysSinceReview = (Date.now() - lastReviewed) / (24 * 60 * 60 * 1000);
+    recencyScore = Math.max(0, 20 * (1 - daysSinceReview / 30));
+  }
+
+  const statusBonus = word.status === "known" ? 15 : word.status === "learning" ? 5 : 0;
+
+  const raw = intervalScore + streakScore - forgetPenalty + recencyScore + statusBonus;
+  return Math.round(Math.max(0, Math.min(100, raw)));
 }
 
 // Helper: format timestamp to YYYY-MM-DD in UTC
@@ -23,17 +62,17 @@ export const getActivityHeatmap = query({
     const now = Date.now();
     const startTs = now - days * 24 * 60 * 60 * 1000;
 
-    // Get events in range
+    // Get events in range (cap at 10K to prevent timeout)
     const events = await ctx.db
       .query("events")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .collect();
+      .take(10_000);
 
-    // Get words added in range
+    // Get words added in range (cap at 10K)
     const words = await ctx.db
       .query("words")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .collect();
+      .take(10_000);
 
     // Count by date
     const countMap = new Map<string, number>();
@@ -75,7 +114,7 @@ export const getAccuracyTrend = query({
     const events = await ctx.db
       .query("events")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .collect();
+      .take(10_000);
 
     const rememberedMap = new Map<string, number>();
     const forgotMap = new Map<string, number>();
@@ -121,9 +160,11 @@ export const getWordStrengthDistribution = query({
 
     for (const word of words) {
       const strength = computeWordStrength(word);
-      if (strength <= 25) weak++;
-      else if (strength <= 50) growing++;
-      else if (strength <= 75) strong++;
+      // Thresholds aligned with src/lib/memory-strength.ts strengthLabel():
+      // Fragile(<20) + Weak(<40) → weak, Fair(<60) → growing, Good(<80) → strong, Strong(>=80) → mastered
+      if (strength < 40) weak++;
+      else if (strength < 60) growing++;
+      else if (strength < 80) strong++;
       else mastered++;
     }
 
@@ -172,12 +213,12 @@ export const getStreakHistory = query({
     const events = await ctx.db
       .query("events")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .collect();
+      .take(10_000);
 
     const words = await ctx.db
       .query("words")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .collect();
+      .take(10_000);
 
     const activeDays = new Set<string>();
 
@@ -239,10 +280,17 @@ export const getInsights = query({
 
     // Hardest words (highest difficulty)
     const hardestWords = words
-      .filter((w) => (w.difficulty || 1) > 1.5 || w.isHard)
-      .sort((a, b) => (b.difficulty || 1) - (a.difficulty || 1))
+      .filter((w) => {
+        if (w.fsrsDifficulty != null) return w.fsrsDifficulty >= 5 || w.isHard;
+        return (w.difficulty || 1) > 1.5 || w.isHard;
+      })
+      .sort((a, b) => {
+        const da = a.fsrsDifficulty ?? ((a.difficulty || 1) - 1) / 2 * 9 + 1;
+        const db = b.fsrsDifficulty ?? ((b.difficulty || 1) - 1) / 2 * 9 + 1;
+        return db - da;
+      })
       .slice(0, 5)
-      .map((w) => ({ word: w.word, difficulty: w.difficulty || 1 }));
+      .map((w) => ({ word: w.word, difficulty: w.fsrsDifficulty ?? (w.difficulty || 1) }));
 
     // Most practiced words
     const mostPracticed = words
@@ -287,10 +335,7 @@ export const getInsights = query({
 
     // Average strength
     const avgStrength = words.reduce((sum, w) => {
-      const strength = 
-        (w.consecutiveCorrect || 0) * 15 + 
-        (w.status === "known" ? 50 : w.status === "learning" ? 25 : 0);
-      return sum + Math.min(100, strength);
+      return sum + computeWordStrength(w);
     }, 0) / words.length;
 
     return {
@@ -345,7 +390,7 @@ export const getReadingSpeedTrend = query({
     const sessions = await ctx.db
       .query("readingSessions")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .collect();
+      .take(5_000);
 
     const filteredSessions = sessions.filter((s) => s.createdAt >= startTs);
 
@@ -388,7 +433,7 @@ export const getReadingStatsByContentType = query({
     const sessions = await ctx.db
       .query("readingSessions")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .collect();
+      .take(5_000);
 
     const statsByType = new Map<string, { totalWords: number; totalTime: number; totalSessions: number; totalComprehension: number }>();
 
@@ -428,7 +473,7 @@ export const getReadingInsights = query({
     const sessions = await ctx.db
       .query("readingSessions")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .collect();
+      .take(5_000);
 
     if (sessions.length === 0) {
       return {

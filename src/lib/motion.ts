@@ -68,6 +68,12 @@ export function useExitAnimation(
   return { isClosing, triggerClose };
 }
 
+// ── Stagger delay helper ──
+export function staggerDelay(index: number, base: number = 80): string {
+  if (prefersReducedMotion()) return "0ms";
+  return `${index * base}ms`;
+}
+
 // ── Transition shorthand helpers ──
 export function transition(
   property: string,

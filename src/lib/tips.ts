@@ -89,7 +89,7 @@ export async function shouldShowTip(tipId: string): Promise<boolean> {
     case "tip_save_context":
       return c.wordsSaved >= 5 && !c.saveContextUsed;
     case "tip_reading_badge":
-      return c.badgeClicked === false; // badge shown 3+ times checked at call site
+      return c.badgeClicked === false; // Show when user hasn't clicked the badge yet
     case "tip_hard_star":
       return c.vocabTabOpenCount >= 2;
     case "tip_scan_page":

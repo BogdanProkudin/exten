@@ -34,16 +34,33 @@ export default defineSchema({
     // Smart context capture
     exampleContext: v.optional(v.array(v.string())),
     exampleSource: v.optional(v.string()),
+    // Entry type: word (default), phrase, or sentence
+    type: v.optional(v.union(v.literal("word"), v.literal("phrase"), v.literal("sentence"))),
+    // FSRS-5 memory model fields
+    fsrsStability: v.optional(v.number()),
+    fsrsDifficulty: v.optional(v.number()),
+    fsrsElapsedDays: v.optional(v.number()),
+    fsrsScheduledDays: v.optional(v.number()),
+    fsrsReps: v.optional(v.number()),
+    fsrsLapses: v.optional(v.number()),
+    fsrsState: v.optional(v.union(
+      v.literal("new"),
+      v.literal("learning"),
+      v.literal("review"),
+      v.literal("relearning"),
+    )),
+    fsrsLastReview: v.optional(v.number()),
   })
     .index("by_device", ["deviceId"])
     .index("by_device_word", ["deviceId", "word"])
     .index("by_device_status", ["deviceId", "status"])
-    .index("by_device_lemma", ["deviceId", "lemma"]),
+    .index("by_device_lemma", ["deviceId", "lemma"])
+    .index("by_device_type", ["deviceId", "type"]),
 
   // AI response cache
   aiCache: defineTable({
     key: v.string(),
-    type: v.union(v.literal("explain"), v.literal("simplify")),
+    type: v.union(v.literal("explain"), v.literal("simplify"), v.literal("sentence_analyze")),
     word: v.optional(v.string()),
     input: v.string(),
     result: v.string(),
@@ -59,6 +76,7 @@ export default defineSchema({
       v.literal("review_remembered"),
       v.literal("review_forgot"),
       v.literal("toast_shown"),
+      v.literal("writing_practice"),
     ),
     word: v.optional(v.string()),
     timestamp: v.number(),
@@ -82,6 +100,8 @@ export default defineSchema({
     dailyWordsLearned: v.number(),
     dailyReviewsDone: v.number(),
     dailyGoalXp: v.number(), // configurable goal
+    // FSRS desired retention (default 0.9)
+    desiredRetention: v.optional(v.number()),
     // Lifetime stats
     totalWordsLearned: v.number(),
     totalReviewsDone: v.number(),
@@ -99,6 +119,29 @@ export default defineSchema({
   })
     .index("by_device", ["deviceId"])
     .index("by_device_achievement", ["deviceId", "achievementId"]),
+
+  // Collocation teaching system
+  collocations: defineTable({
+    deviceId: v.string(),
+    collocation: v.string(),
+    words: v.array(v.string()),
+    category: v.string(),
+    level: v.optional(v.string()),
+    mastered: v.boolean(),
+    practiceCount: v.number(),
+    lastPracticed: v.optional(v.number()),
+    discoveredAt: v.number(),
+    sourceContext: v.optional(v.string()),
+  })
+    .index("by_device", ["deviceId"])
+    .index("by_device_collocation", ["deviceId", "collocation"]),
+
+  // AI rate limiting (per-device daily counters)
+  aiRateLimits: defineTable({
+    deviceId: v.string(),
+    date: v.string(), // YYYY-MM-DD
+    callCount: v.number(),
+  }).index("by_device_date", ["deviceId", "date"]),
 
   // Reading Speed Tracking
   readingSessions: defineTable({

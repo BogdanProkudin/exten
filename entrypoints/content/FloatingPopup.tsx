@@ -12,6 +12,8 @@ import { lemmatize } from "../../src/lib/lemmatize";
 import { computeStrength } from "../../src/lib/memory-strength";
 import { getWordEnrichment, type WordEnrichment } from "../../src/lib/word-enrichment";
 import { getPhrasalVerbs } from "../../src/lib/phrase-detector";
+import type { CollocationMatch } from "../../src/lib/collocation-engine";
+import { speak } from "../../src/lib/tts";
 import { getAITranslator } from "../../src/lib/ai-translator";
 
 interface SavedWordData {
@@ -42,16 +44,33 @@ interface FloatingPopupProps {
   vocabLemmas?: Set<string>;
   onSaved?: (lemma: string) => void;
   onAchievement?: (achievement: Achievement) => void;
+  wordType?: "word" | "phrase";
+  phraseCategory?: string;
 }
 
-export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, onAchievement }: FloatingPopupProps) {
+const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+function friendlyError(raw: string): string {
+  const msg = raw.toLowerCase();
+  if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("network")) {
+    return "Network error. Check your connection.";
+  }
+  if (msg.includes("timed out") || msg.includes("timeout")) {
+    return "Request timed out. Try again.";
+  }
+  if (msg.includes("translation failed")) {
+    return "Translation unavailable. Try again.";
+  }
+  return "Something went wrong. Try again.";
+}
+
+export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, onAchievement, wordType, phraseCategory }: FloatingPopupProps) {
   const [translation, setTranslation] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [errorShake, setErrorShake] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [xpEarned, setXpEarned] = useState<number | null>(null);
   const [savedWordId, setSavedWordId] = useState<string | null>(null);
   const [undoing, setUndoing] = useState(false);
   const [undone, setUndone] = useState(false);
@@ -73,6 +92,10 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
   // Word enrichment state
   const [enrichment, setEnrichment] = useState<WordEnrichment | null>(null);
   const [enrichmentExpanded, setEnrichmentExpanded] = useState(false);
+  // Collocation state
+  const [collocations, setCollocations] = useState<CollocationMatch[]>([]);
+  const [collocationsExpanded, setCollocationsExpanded] = useState(false);
+  const [savingCollocation, setSavingCollocation] = useState<string | null>(null);
 
   // Smart context capture state
   const [candidates, setCandidates] = useState<CandidateSentence[] | null>(null);
@@ -231,10 +254,25 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
       const res = await chrome.runtime.sendMessage({ type: "TRANSLATE_WORD", word });
       if (res?.success) {
         setTranslation(res.translation);
+        // Fetch enrichment and collocations in parallel (fire-and-forget)
         getWordEnrichment(word).then(setEnrichment).catch(() => {});
+        try {
+          const colRes = await chrome.runtime.sendMessage({ type: "GET_COLLOCATIONS", word });
+          if (colRes?.success && colRes.collocations?.length > 0) {
+            setCollocations(colRes.collocations);
+          } else {
+            // Try discovering via API if no static matches
+            try {
+              const discRes = await chrome.runtime.sendMessage({ type: "DISCOVER_COLLOCATIONS", word });
+              if (discRes?.success && discRes.collocations?.length > 0) {
+                setCollocations(discRes.collocations);
+              }
+            } catch { /* collocation discovery is non-critical */ }
+          }
+        } catch { /* collocation fetch is non-critical */ }
       } else {
         const msg = res?.error || "Translation failed";
-        setError(msg.includes("timed out") ? "Translation timed out" : msg);
+        setError(friendlyError(msg));
         setErrorShake(true);
         setTimeout(() => setErrorShake(false), 400);
       }
@@ -322,6 +360,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
       sourceUrl: window.location.href,
       exampleContext,
       exampleSource,
+      wordType: wordType ?? (word.includes(" ") ? "phrase" : undefined),
     });
 
     setSaving(false);
@@ -330,15 +369,11 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
       console.log("[Vocabify] Word saved successfully:", { word, lemma });
       setSaved(true);
       if (res.wordId) setSavedWordId(res.wordId);
-      // Show XP earned
-      if (res.xp?.xpAwarded) {
-        setXpEarned(res.xp.xpAwarded);
-      }
       // Show achievement notifications
-      if (res.xp?.newAchievements && res.xp.newAchievements.length > 0) {
+      if (res.achievements && res.achievements.length > 0) {
         // Delay achievement display until after save animation
         setTimeout(() => {
-          for (const achievement of res.xp.newAchievements) {
+          for (const achievement of res.achievements) {
             onAchievement?.(achievement);
           }
         }, 1000);
@@ -349,7 +384,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
       setTimeout(fadeOutAndClose, 5000); // Extended for undo window
     } else {
       console.error("[Vocabify] Save failed:", res);
-      setError(res?.error || "Failed to save word");
+      setError(friendlyError(res?.error || "Failed to save word"));
       setErrorShake(true);
       setTimeout(() => setErrorShake(false), 400);
     }
@@ -530,7 +565,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
 
   const handleOpenDashboard = () => {
     window.open(
-      chrome.runtime.getURL(`/newtab.html?word=${encodeURIComponent(word)}`),
+      chrome.runtime.getURL(`/dashboard.html?word=${encodeURIComponent(word)}`),
       "_blank",
     );
   };
@@ -566,9 +601,8 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
         position: "absolute",
         left: position.x,
         top: topValue,
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-        fontSize: "16px",
+        fontFamily: FONT,
+        fontSize: "14px",
         opacity: fading ? 0 : visible ? 1 : 0,
         transform: fading
           ? `translateY(${shouldPlaceAbove ? "calc(-100% + 4px)" : "-4px"}) scale(0.98)`
@@ -583,36 +617,61 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
     >
       <div
         ref={cardRef}
-        className="pointer-events-auto rounded-2xl p-4 min-w-[220px] max-w-[380px]"
+        className="pointer-events-auto"
         style={{
+          width: "340px",
+          maxWidth: "90vw",
+          borderRadius: "16px",
           background: "#fff",
           boxShadow: "0 8px 32px rgba(0,0,0,.12), 0 2px 8px rgba(0,0,0,.08)",
           border: "1px solid rgba(0,0,0,.06)",
+          position: "relative",
         }}
       >
+        {/* Top accent bar */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: "3px",
+            background: "linear-gradient(90deg, #6366f1, #3b82f6, #06b6d4)",
+            borderRadius: "16px 16px 0 0",
+          }}
+        />
+
+        <div style={{ padding: "16px" }}>
         {/* Header */}
         <div className="flex items-start justify-between gap-3 mb-2">
-          <span
-            className="text-base leading-snug"
-            style={{ fontWeight: 600, color: "#111", letterSpacing: "-0.01em" }}
-          >
-            {word}
-          </span>
+          <div style={{ borderLeft: "3px solid #6366f1", paddingLeft: "12px" }}>
+            <span
+              className="leading-snug"
+              style={{ fontWeight: 600, color: "#111", letterSpacing: "-0.01em", fontSize: "16px" }}
+            >
+              {word}
+            </span>
+          </div>
           <div className="flex items-center gap-1 shrink-0">
             {/* Pronounce */}
             <button
-              onClick={() => {
-                speechSynthesis.cancel();
-                const u = new SpeechSynthesisUtterance(word);
-                u.lang = "en";
-                u.rate = 0.9;
-                speechSynthesis.speak(u);
+              onClick={() => { speak(word); }}
+              style={{
+                width: "28px",
+                height: "28px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "8px",
+                border: "none",
+                cursor: "pointer",
+                color: "#6b7280",
+                background: "#f5f5f5",
+                transition: "all 150ms ease",
               }}
-              className="w-5 h-5 flex items-center justify-center rounded-full"
-              style={{ color: "#666", background: "#f5f5f5" }}
               title="Pronounce"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
                 <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
                 <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
@@ -624,19 +683,30 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                 <button
                   onClick={handleExplain}
                   disabled={explaining || !!explanation}
-                  className="w-5 h-5 flex items-center justify-center rounded-full"
                   style={{
+                    width: "28px",
+                    height: "28px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: "8px",
                     color: explanation ? "#6b7280" : "#d97706",
                     background: "#f5f5f5",
                     cursor: (explaining || !!explanation) ? "default" : "pointer",
                     border: "none",
-                    fontSize: "11px",
+                    transition: "all 150ms ease",
                   }}
                   title={explaining ? "Explaining…" : "Explain word"}
                 >
                   {explaining ? (
-                    <div className="w-2.5 h-2.5 rounded-full animate-spin" style={{ border: "1.5px solid #e5e7eb", borderTopColor: "#d97706" }} />
-                  ) : "💡"}
+                    <div style={{ width: "12px", height: "12px", borderRadius: "50%", border: "1.5px solid #e5e7eb", borderTopColor: "#d97706", animation: "spin 0.6s linear infinite" }} />
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 18h6" />
+                      <path d="M10 22h4" />
+                      <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5C8.26 12.26 8.72 13.02 8.91 14" />
+                    </svg>
+                  )}
                 </button>
                 {explainTipVisible && (
                   <div
@@ -665,27 +735,60 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
               <button
                 onClick={handleSimplify}
                 disabled={simplifying || !!simplified}
-                className="w-5 h-5 flex items-center justify-center rounded-full"
                 style={{
+                  width: "28px",
+                  height: "28px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "8px",
                   color: simplified ? "#6b7280" : "#3730a3",
                   background: "#f5f5f5",
                   cursor: (simplifying || !!simplified) ? "default" : "pointer",
                   border: "none",
-                  fontSize: "11px",
+                  transition: "all 150ms ease",
                 }}
                 title={simplifying ? "Simplifying…" : "Simplify surrounding text"}
               >
                 {simplifying ? (
-                  <div className="w-2.5 h-2.5 rounded-full animate-spin" style={{ border: "1.5px solid #e5e7eb", borderTopColor: "#3730a3" }} />
-                ) : "📝"}
+                  <div style={{ width: "12px", height: "12px", borderRadius: "50%", border: "1.5px solid #e5e7eb", borderTopColor: "#3730a3", animation: "spin 0.6s linear infinite" }} />
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10 9 9 9 8 9" />
+                  </svg>
+                )}
               </button>
             )}
             {/* Close */}
             {!saved && (
               <button
                 onClick={fadeOutAndClose}
-                className="w-5 h-5 flex items-center justify-center rounded-full"
-                style={{ color: "#999", fontSize: "14px", background: "#f5f5f5" }}
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "8px",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#9ca3af",
+                  background: "#f5f5f5",
+                  fontSize: "14px",
+                  transition: "all 150ms ease",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget).style.color = "#6b7280";
+                  (e.currentTarget).style.background = "#f0f0f0";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget).style.color = "#9ca3af";
+                  (e.currentTarget).style.background = "#f5f5f5";
+                }}
               >
                 &#x2715;
               </button>
@@ -757,9 +860,35 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
               </div>
 
               {/* Translation */}
-              <p className="mb-3 leading-relaxed" style={{ fontSize: "14px", color: "#444" }}>
-                {savedWordData.translation}
-              </p>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "8px",
+                  padding: "10px 12px",
+                  background: "#f8fafc",
+                  borderRadius: "10px",
+                  marginBottom: "12px",
+                }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#94a3b8"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ marginTop: "2px", flexShrink: 0 }}
+                >
+                  <path d="M5 12h14" />
+                  <path d="m12 5 7 7-7 7" />
+                </svg>
+                <p style={{ margin: 0, fontSize: "14px", fontWeight: 500, color: "#334155", lineHeight: 1.5, flex: 1 }}>
+                  {savedWordData.translation}
+                </p>
+              </div>
 
               {/* ── Quick Review mini-card ── */}
               {reviewResult ? (
@@ -788,7 +917,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                     border: "1px solid #e5e7eb",
                   }}
                 >
-                  <p style={{ fontSize: "11px", color: "#6b7280", marginBottom: "6px", fontWeight: 500 }}>
+                  <p style={{ fontSize: "10px", color: "#94a3b8", marginBottom: "6px", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>
                     Quick Review
                   </p>
                   {!reviewRevealed ? (
@@ -879,7 +1008,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                         name="candidate"
                         checked={selectedCandidateIdx === i}
                         onChange={() => setSelectedCandidateIdx(i)}
-                        style={{ marginTop: "2px", accentColor: "#3b82f6", flexShrink: 0 }}
+                        style={{ marginTop: "2px", accentColor: "#6366f1", flexShrink: 0 }}
                       />
                       <span style={{ color: "#374151" }}>
                         {highlightWord(c.text, word).map((part, j) =>
@@ -910,7 +1039,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                       fontWeight: 500,
                       border: "none",
                       cursor: addingContext || contextAddResult ? "default" : "pointer",
-                      background: contextAddResult ? "#ecfdf5" : "#3b82f6",
+                      background: contextAddResult ? "#ecfdf5" : "#4f46e5",
                       color: contextAddResult ? "#059669" : "#fff",
                       borderRadius: "10px",
                       transition: "filter 150ms ease",
@@ -951,13 +1080,13 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                   onClick={handleOpenDashboard}
                   style={{
                     fontSize: "12px",
-                    color: "#3b82f6",
+                    color: "#4f46e5",
                     background: "none",
                     border: "none",
                     cursor: "pointer",
                     padding: "2px 0",
                     textDecoration: "underline",
-                    textDecorationColor: "#93c5fd",
+                    textDecorationColor: "#a5b4fc",
                     textUnderlineOffset: "2px",
                   }}
                 >
@@ -1013,7 +1142,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
               className="w-3.5 h-3.5 rounded-full animate-spin"
               style={{
                 border: "2px solid #e5e7eb",
-                borderTopColor: "#3b82f6",
+                borderTopColor: "#6366f1",
               }}
             />
             <span style={{ fontSize: "13px", color: "#6b7280" }}>Translating…</span>
@@ -1055,45 +1184,28 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
         ) : saved ? (
           /* ── Saved confirmation with checkmark bounce, XP, and Undo ── */
           <div className="py-1">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div
-                  className="flex items-center justify-center w-5 h-5 rounded-full"
-                  style={{
-                    background: undone ? "#fef2f2" : "#ecfdf5",
-                    animation: "checkmarkBounce 400ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
-                  }}
-                >
-                  <span style={{ color: undone ? "#dc2626" : "#059669", fontSize: "12px", lineHeight: 1 }}>
-                    {undone ? "↩" : "✓"}
-                  </span>
-                </div>
-                <span
-                  style={{
-                    fontSize: "13px",
-                    color: undone ? "#dc2626" : "#059669",
-                    fontWeight: 500,
-                    animation: "fadeInUp 250ms cubic-bezier(0.0, 0.0, 0.2, 1.0) 150ms both",
-                  }}
-                >
-                  {undone ? "Removed from vocabulary" : "Saved to vocabulary"}
-                </span>
-              </div>
-              {xpEarned && !undone && (
-                <span
-                  style={{
-                    fontSize: "12px",
-                    color: "#8b5cf6",
-                    fontWeight: 600,
-                    background: "#f3e8ff",
-                    padding: "2px 8px",
-                    borderRadius: "10px",
-                    animation: "xpPop 500ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
-                  }}
-                >
-                  +{xpEarned} XP
-                </span>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 14px",
+                borderRadius: "10px",
+                background: undone ? "#fef2f2" : "#ecfdf5",
+                border: undone ? "1px solid #fecaca" : "1px solid #a7f3d0",
+                animation: "sentenceSavePop 400ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
+              }}
+            >
+              {undone ? (
+                <span style={{ color: "#dc2626", fontSize: "12px", lineHeight: 1 }}>↩</span>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
               )}
+              <span style={{ fontSize: "13px", fontWeight: 600, color: undone ? "#dc2626" : "#059669" }}>
+                {undone ? "Removed from vocabulary" : "Saved to vocabulary"}
+              </span>
             </div>
             {savedWordId && !undone && (
               <button
@@ -1115,7 +1227,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                   marginTop: "6px",
                   background: "none",
                   border: "1px solid #e5e7eb",
-                  borderRadius: "6px",
+                  borderRadius: "8px",
                   padding: "3px 10px",
                   fontSize: "11px",
                   color: undoing ? "#9ca3af" : "#6b7280",
@@ -1129,12 +1241,36 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
           </div>
         ) : (
           <>
-            <p
-              className="mb-3 leading-relaxed"
-              style={{ fontSize: "14px", color: "#444" }}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "8px",
+                padding: "10px 12px",
+                background: "#f8fafc",
+                borderRadius: "10px",
+                marginBottom: "12px",
+                animation: "sentenceFadeIn 300ms ease 100ms both",
+              }}
             >
-              {translation}
-            </p>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#94a3b8"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ marginTop: "2px", flexShrink: 0 }}
+              >
+                <path d="M5 12h14" />
+                <path d="m12 5 7 7-7 7" />
+              </svg>
+              <p style={{ margin: 0, fontSize: "14px", fontWeight: 500, color: "#334155", lineHeight: 1.5, flex: 1 }}>
+                {translation}
+              </p>
+            </div>
 
             {/* ── Related Words (enrichment) ── */}
             {enrichment && (enrichment.synonyms.length > 0 || enrichment.antonyms.length > 0) && (
@@ -1147,8 +1283,8 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                     alignItems: "center", gap: "4px", padding: "2px 0",
                   }}
                 >
-                  <span style={{ transform: enrichmentExpanded ? "rotate(90deg)" : "rotate(0)", transition: "transform 150ms", display: "inline-block" }}>&#9654;</span>
-                  Related Words
+                  <span style={{ transform: enrichmentExpanded ? "rotate(90deg)" : "rotate(0)", transition: "transform 150ms", display: "inline-block", fontSize: "8px" }}>&#9654;</span>
+                  <span style={{ fontSize: "10px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>Related Words</span>
                   {enrichment.phonetic && <span style={{ color: "#9ca3af", marginLeft: "4px" }}>{enrichment.phonetic}</span>}
                 </button>
                 {enrichmentExpanded && (
@@ -1177,6 +1313,72 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                         {getPhrasalVerbs(lemma).slice(0, 4).join(", ")}
                       </div>
                     )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Common Pairings (collocations) ── */}
+            {collocations.length > 0 && (
+              <div style={{ marginTop: "8px" }}>
+                <button
+                  onClick={() => setCollocationsExpanded(!collocationsExpanded)}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    fontSize: "11px", color: "#6b7280", display: "flex",
+                    alignItems: "center", gap: "4px", padding: "2px 0",
+                  }}
+                >
+                  <span style={{ transform: collocationsExpanded ? "rotate(90deg)" : "rotate(0)", transition: "transform 150ms", display: "inline-block", fontSize: "8px" }}>&#9654;</span>
+                  <span style={{ fontSize: "10px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>Common pairings ({collocations.length})</span>
+                </button>
+                {collocationsExpanded && (
+                  <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "4px", animation: "fadeInUp 200ms ease both" }}>
+                    {collocations.slice(0, 6).map((col) => (
+                      <button
+                        key={col.collocation}
+                        onClick={async () => {
+                          setSavingCollocation(col.collocation);
+                          try {
+                            await chrome.runtime.sendMessage({
+                              type: "SAVE_COLLOCATION",
+                              collocation: col.collocation,
+                              words: col.collocation.split(/\s+/),
+                              category: col.category,
+                              level: col.level,
+                            });
+                          } catch {}
+                          setTimeout(() => setSavingCollocation(null), 1000);
+                        }}
+                        style={{
+                          fontSize: "10px",
+                          padding: "3px 8px",
+                          borderRadius: "12px",
+                          border: savingCollocation === col.collocation ? "1px solid #22c55e" : "1px solid #e2e8f0",
+                          background: savingCollocation === col.collocation ? "#f0fdf4" : "#fff",
+                          color: savingCollocation === col.collocation ? "#16a34a" : "#475569",
+                          cursor: "pointer",
+                          transition: "all 150ms",
+                          whiteSpace: "nowrap",
+                          fontFamily: FONT,
+                        }}
+                        onMouseEnter={(e) => {
+                          if (savingCollocation !== col.collocation) {
+                            (e.currentTarget).style.borderColor = "#6366f1";
+                            (e.currentTarget).style.color = "#4338ca";
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (savingCollocation !== col.collocation) {
+                            (e.currentTarget).style.borderColor = "#e2e8f0";
+                            (e.currentTarget).style.color = "#475569";
+                          }
+                        }}
+                        title={`${col.category}${col.source === "discovered" ? " (discovered)" : ""} - Click to save`}
+                      >
+                        {savingCollocation === col.collocation ? "Saved!" : col.collocation}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1228,7 +1430,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                       onChange={() => setSelectedCandidateIdx(i)}
                       style={{
                         marginTop: "2px",
-                        accentColor: "#3b82f6",
+                        accentColor: "#6366f1",
                         flexShrink: 0,
                       }}
                     />
@@ -1256,8 +1458,8 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                           flexShrink: 0,
                           fontSize: "10px",
                           fontWeight: 600,
-                          color: "#3b82f6",
-                          background: "#eff6ff",
+                          color: "#4f46e5",
+                          background: "#eef2ff",
                           padding: "1px 5px",
                           borderRadius: "8px",
                           marginTop: "1px",
@@ -1274,7 +1476,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
             {scanResults === null ? (
               <>
               {/* Primary action buttons */}
-              <div className="flex gap-2">
+              <div className="flex gap-2" style={{ animation: "sentenceFadeIn 300ms ease 200ms both" }}>
                 <button
                   onClick={() => handleSave(false)}
                   disabled={saving}
@@ -1282,28 +1484,42 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                   style={{
                     padding: "8px 12px",
                     fontSize: "13px",
-                    fontWeight: 500,
+                    fontWeight: 600,
                     border: "none",
                     cursor: saving ? "default" : "pointer",
-                    background: "#3b82f6",
+                    background: "#4f46e5",
                     color: "#fff",
                     borderRadius: "10px",
-                    transition: "filter 150ms ease, transform 100ms ease",
+                    transition: "all 150ms ease",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    fontFamily: FONT,
                   }}
                   onMouseEnter={(e) => {
-                    if (!saving) (e.target as HTMLElement).style.filter = "brightness(1.05)";
+                    if (!saving) (e.currentTarget).style.background = "#4338ca";
                   }}
                   onMouseLeave={(e) => {
-                    if (!saving) (e.target as HTMLElement).style.filter = "brightness(1)";
+                    if (!saving) (e.currentTarget).style.background = "#4f46e5";
                   }}
                   onMouseDown={(e) => {
-                    (e.target as HTMLElement).style.transform = "scale(0.97)";
+                    (e.currentTarget).style.transform = "scale(0.97)";
                   }}
                   onMouseUp={(e) => {
-                    (e.target as HTMLElement).style.transform = "scale(1)";
+                    (e.currentTarget).style.transform = "scale(1)";
                   }}
                 >
-                  {saving ? "Saving…" : "Save"}
+                  {saving ? "Saving…" : (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                        <polyline points="17 21 17 13 7 13 7 21" />
+                        <polyline points="7 3 7 8 15 8" />
+                      </svg>
+                      Save
+                    </>
+                  )}
                 </button>
                 {hasCandidates && (
                   <button
@@ -1314,24 +1530,31 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                       padding: "8px 12px",
                       fontSize: "13px",
                       fontWeight: 500,
-                      border: "1px solid #3b82f6",
+                      border: "1px solid #e2e8f0",
                       cursor: saving ? "default" : "pointer",
                       background: "#fff",
-                      color: "#3b82f6",
+                      color: "#475569",
                       borderRadius: "10px",
-                      transition: "background 150ms ease, transform 100ms ease",
+                      transition: "all 150ms ease",
+                      fontFamily: FONT,
                     }}
                     onMouseEnter={(e) => {
-                      if (!saving) (e.target as HTMLElement).style.background = "#eff6ff";
+                      if (!saving) {
+                        (e.currentTarget).style.borderColor = "#6366f1";
+                        (e.currentTarget).style.color = "#4338ca";
+                      }
                     }}
                     onMouseLeave={(e) => {
-                      if (!saving) (e.target as HTMLElement).style.background = "#fff";
+                      if (!saving) {
+                        (e.currentTarget).style.borderColor = "#e2e8f0";
+                        (e.currentTarget).style.color = "#475569";
+                      }
                     }}
                     onMouseDown={(e) => {
-                      (e.target as HTMLElement).style.transform = "scale(0.97)";
+                      (e.currentTarget).style.transform = "scale(0.97)";
                     }}
                     onMouseUp={(e) => {
-                      (e.target as HTMLElement).style.transform = "scale(1)";
+                      (e.currentTarget).style.transform = "scale(1)";
                     }}
                   >
                     {saving ? "Saving…" : "Save + Context"}
@@ -1385,13 +1608,13 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                   disabled={scanning}
                   style={{
                     fontSize: "12px",
-                    color: scanning ? "#6b7280" : "#3b82f6",
+                    color: scanning ? "#6b7280" : "#4f46e5",
                     background: "none",
                     border: "none",
                     cursor: scanning ? "default" : "pointer",
                     padding: "2px 0",
                     textDecoration: scanning ? "none" : "underline",
-                    textDecorationColor: "#93c5fd",
+                    textDecorationColor: "#a5b4fc",
                     textUnderlineOffset: "2px",
                   }}
                 >
@@ -1468,16 +1691,36 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                   style={{
                     padding: "8px 12px",
                     fontSize: "13px",
-                    fontWeight: 500,
+                    fontWeight: 600,
                     border: "none",
                     cursor: saving ? "default" : "pointer",
-                    background: "#3b82f6",
+                    background: "#4f46e5",
                     color: "#fff",
                     borderRadius: "10px",
-                    transition: "filter 150ms ease, transform 100ms ease",
+                    transition: "all 150ms ease",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    fontFamily: FONT,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!saving) (e.currentTarget).style.background = "#4338ca";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!saving) (e.currentTarget).style.background = "#4f46e5";
                   }}
                 >
-                  {saving ? "Saving…" : "Save"}
+                  {saving ? "Saving…" : (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                        <polyline points="17 21 17 13 7 13 7 21" />
+                        <polyline points="7 3 7 8 15 8" />
+                      </svg>
+                      Save
+                    </>
+                  )}
                 </button>
                 {scanResults.length === 0 ? (
                   <p style={{ fontSize: "12px", color: "#6b7280", textAlign: "center" }}>
@@ -1504,7 +1747,7 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                             onClick={() => handleSaveScanWord(w)}
                             style={{
                               fontSize: "11px",
-                              color: "#3b82f6",
+                              color: "#4f46e5",
                               background: "none",
                               border: "none",
                               cursor: "pointer",
@@ -1522,7 +1765,23 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
             )}
           </>
         )}
+        </div>
       </div>
+
+      <style>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes sentenceFadeIn {
+          from { opacity: 0; transform: translateY(4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes sentenceSavePop {
+          0% { transform: scale(0.9); opacity: 0; }
+          50% { transform: scale(1.03); }
+          100% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }

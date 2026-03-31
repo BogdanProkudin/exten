@@ -10,6 +10,7 @@ export const logEvent = mutation({
       v.literal("review_remembered"),
       v.literal("review_forgot"),
       v.literal("toast_shown"),
+      v.literal("writing_practice"),
     ),
     word: v.optional(v.string()),
     metadata: v.optional(v.any()),
@@ -31,7 +32,7 @@ export const getEventStats = query({
     const events = await ctx.db
       .query("events")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .collect();
+      .take(10_000);
 
     const counts: Record<string, number> = {};
     for (const event of events) {
