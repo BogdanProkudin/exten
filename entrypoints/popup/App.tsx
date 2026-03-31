@@ -944,13 +944,14 @@ function ReviewCountdown({ isDark }: { isDark: boolean }) {
   const [remainingMs, setRemainingMs] = useState(0);
 
   useEffect(() => {
-    chrome.runtime.sendMessage({ type: "GET_TIMER_STATE" }).then((res) => {
-      if (res?.nextReviewAt) setNextReviewAt(res.nextReviewAt);
+    chrome.runtime.sendMessage({ type: "GET_TIMER_STATE" }).then((res: Record<string, unknown>) => {
+      if (res?.nextReviewAt) setNextReviewAt(res.nextReviewAt as number);
     }).catch(() => {});
 
     const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
-      if (area === "session" && changes.vocabifyTimerState?.newValue?.nextReviewAt) {
-        setNextReviewAt(changes.vocabifyTimerState.newValue.nextReviewAt);
+      const timerValue = changes.vocabifyTimerState?.newValue as { nextReviewAt?: number } | undefined;
+      if (area === "session" && timerValue?.nextReviewAt) {
+        setNextReviewAt(timerValue.nextReviewAt);
       }
     };
     chrome.storage.onChanged.addListener(onChange);

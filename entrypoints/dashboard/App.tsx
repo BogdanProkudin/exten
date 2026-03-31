@@ -6,6 +6,7 @@ import {
   useState,
   useCallback,
   useRef,
+  type ReactNode,
 } from "react";
 import type { Id, Doc } from "../../convex/_generated/dataModel";
 import { ErrorBoundary } from "../../src/components/ErrorBoundary";
@@ -113,14 +114,15 @@ function NewTabReviewTimer() {
   // Fetch on mount + listen for storage changes
   useEffect(() => {
     // Get initial state
-    chrome.runtime.sendMessage({ type: "GET_TIMER_STATE" }).then((res) => {
-      if (res?.nextReviewAt) setNextReviewAt(res.nextReviewAt);
+    chrome.runtime.sendMessage({ type: "GET_TIMER_STATE" }).then((res: Record<string, unknown>) => {
+      if (res?.nextReviewAt) setNextReviewAt(res.nextReviewAt as number);
     }).catch(() => {});
 
     // Listen for timer resets via storage changes
     const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
-      if (area === "session" && changes.vocabifyTimerState?.newValue?.nextReviewAt) {
-        setNextReviewAt(changes.vocabifyTimerState.newValue.nextReviewAt);
+      const timerValue = changes.vocabifyTimerState?.newValue as { nextReviewAt?: number } | undefined;
+      if (area === "session" && timerValue?.nextReviewAt) {
+        setNextReviewAt(timerValue.nextReviewAt);
       }
     };
     chrome.storage.onChanged.addListener(onChange);

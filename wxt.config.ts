@@ -9,7 +9,7 @@ export default defineConfig({
   manifest: {
     name: "Vocabify",
     description: "Turn browsing into passive vocabulary learning",
-    author: "Vocabify",
+    author: { email: "vocabify@example.com" },
     homepage_url: "https://github.com/BogdanProkudin/exten",
     icons: {
       16: "icon-16.png",
