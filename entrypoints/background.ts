@@ -2,7 +2,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
 import { getDeviceId } from "../src/lib/device-id";
 import { translateWord } from "../src/lib/translate";
-import { canMakeAiCall, incrementAiCalls, tryConsumeAiCall } from "../src/lib/pro-gate";
+import { canMakeAiCall, tryConsumeAiCall } from "../src/lib/pro-gate";
 import type { Id } from "../convex/_generated/dataModel";
 import { getDefaultState, type SchedulerState } from "../src/lib/smart-scheduler";
 import { populateFromAsset } from "../src/lib/local-dictionary";

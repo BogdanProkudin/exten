@@ -4,13 +4,11 @@ import { internal } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { lemmatize } from "../src/lib/lemmatize";
 import {
-  initCard,
   computeRetrievability,
   mapBooleanToRating,
   scheduleCard,
   cardFromWord,
   applyTypeIntervalMultiplier,
-  type FSRSCard,
   type FSRSRating,
   type FSRSState,
 } from "../src/lib/fsrs";
