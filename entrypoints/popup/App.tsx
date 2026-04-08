@@ -15,13 +15,13 @@ export default function App() {
   useEffect(() => {
     chrome.runtime.sendMessage({ type: "GET_DEVICE_ID" }).then((res) => {
       if (res?.deviceId) setDeviceId(res.deviceId);
-    });
-    
+    }).catch(() => {});
+
     // Check if onboarding completed
     chrome.storage.sync.get("onboardingComplete").then((data) => {
       setShowOnboarding(!data.onboardingComplete);
       setOnboardingChecked(true);
-    });
+    }).catch(() => {});
   }, []);
   
   const stats = useQuery(
@@ -163,13 +163,23 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-    <div className={`w-[340px] p-4 ${isDark ? "bg-gray-900 text-white" : "bg-white"}`}>
+    <div className={`w-[340px] p-5 ${isDark ? "bg-gray-900 text-white" : "bg-white"}`}>
 
-      {/* Header with Streak */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <OwlAvatar size={38} />
-          <h1 className={`text-lg font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>Vocabify</h1>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2.5">
+          <OwlAvatar size={36} />
+          <h1
+            className="text-lg font-bold"
+            style={{
+              background: isDark ? "linear-gradient(135deg, #a5b4fc 0%, #818cf8 100%)" : "linear-gradient(135deg, #312e81 0%, #4f46e5 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            Vocabify
+          </h1>
         </div>
       </div>
 
@@ -206,25 +216,41 @@ export default function App() {
 
       {/* Daily Progress */}
       {dailyProgress && (
-        <div className={`flex items-center gap-2 mb-2 px-1 py-1.5 rounded-lg ${isDark ? "bg-gray-800" : "bg-gray-50"}`}>
+        <div
+          className="flex items-center gap-2.5 mb-3 px-3 py-2.5"
+          style={{
+            borderRadius: "12px",
+            background: isDark ? "rgba(255,255,255,0.05)" : "rgba(99,102,241,0.04)",
+            border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(99,102,241,0.08)"}`,
+          }}
+        >
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+            <div className="flex items-center gap-2">
+              <div
+                className="flex-1 overflow-hidden"
+                style={{ height: "6px", borderRadius: "3px", background: isDark ? "rgba(255,255,255,0.1)" : "rgba(99,102,241,0.1)" }}
+              >
                 <div
-                  className="h-full rounded-full transition-all duration-500"
+                  className="h-full transition-all duration-500"
                   style={{
                     width: `${Math.min(100, dailyProgress.goalTarget > 0 ? (dailyProgress.totalToday / dailyProgress.goalTarget) * 100 : 0)}%`,
-                    background: dailyProgress.totalToday >= dailyProgress.goalTarget ? "#22c55e" : "#3b82f6",
+                    borderRadius: "3px",
+                    background: dailyProgress.totalToday >= dailyProgress.goalTarget
+                      ? "linear-gradient(90deg, #10b981 0%, #22c55e 100%)"
+                      : "linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%)",
                   }}
                 />
               </div>
-              <span className={`text-xs font-medium shrink-0 ${isDark ? "text-gray-300" : "text-gray-600"}`}>
+              <span
+                className="shrink-0"
+                style={{ fontSize: "12px", fontWeight: 600, color: isDark ? "#a5b4fc" : "#4f46e5" }}
+              >
                 {dailyProgress.totalToday}/{dailyProgress.goalTarget}
               </span>
             </div>
           </div>
           {dailyProgress.streak > 1 && (
-            <span className="text-xs font-semibold text-orange-500 shrink-0">
+            <span className="shrink-0" style={{ fontSize: "12px", fontWeight: 700, color: "#f59e0b" }}>
               {dailyProgress.streak} 🔥
             </span>
           )}
@@ -244,47 +270,69 @@ export default function App() {
       {/* Primary CTA */}
       <button
         onClick={() => openDashboard("review")}
-        className="w-full py-2.5 px-4 bg-blue-500 text-white text-sm font-medium rounded-xl hover:bg-blue-600 transition-colors mb-2"
-        style={{ borderRadius: "10px" }}
+        className="w-full text-white text-sm font-semibold transition-all duration-200 mb-2.5 cursor-pointer"
+        style={{
+          padding: "11px 16px",
+          borderRadius: "12px",
+          background: "linear-gradient(135deg, #6366f1 0%, #7c3aed 100%)",
+          boxShadow: "0 4px 12px rgba(99,102,241,0.3), 0 1px 3px rgba(0,0,0,0.08)",
+          border: "none",
+          letterSpacing: "-0.01em",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = "translateY(-1px)";
+          e.currentTarget.style.boxShadow = "0 6px 20px rgba(99,102,241,0.4), 0 2px 6px rgba(0,0,0,0.1)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = "translateY(0)";
+          e.currentTarget.style.boxShadow = "0 4px 12px rgba(99,102,241,0.3), 0 1px 3px rgba(0,0,0,0.08)";
+        }}
       >
         Review Words
       </button>
 
       {/* Secondary links */}
-      <div className="flex justify-center gap-4 mb-2">
+      <div className="flex justify-center gap-4 mb-3">
         <button
           onClick={() => openDashboard("vocabulary")}
-          className="text-xs text-blue-500 hover:text-blue-600 font-medium"
+          className="text-xs font-medium transition-colors duration-200 cursor-pointer"
+          style={{ color: "#6366f1", background: "none", border: "none" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "#4338ca"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "#6366f1"; }}
         >
           Vocabulary
         </button>
-        <span className="text-gray-300">|</span>
+        <span style={{ color: isDark ? "#374151" : "#d1d5db" }}>|</span>
         <button
           onClick={() => openDashboard("hard")}
-          className="text-xs text-blue-500 hover:text-blue-600 font-medium"
+          className="text-xs font-medium transition-colors duration-200 cursor-pointer"
+          style={{ color: "#6366f1", background: "none", border: "none" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "#4338ca"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "#6366f1"; }}
         >
           Hard Words
         </button>
       </div>
 
 
-      {/* DND Controls — stays top-level */}
-      <div className="border-t border-gray-100 pt-3 mb-3">
+      {/* DND Controls */}
+      <div style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(99,102,241,0.06)"}`, paddingTop: "12px", marginBottom: "12px" }}>
         {isDnd ? (
           <div className="flex items-center justify-between">
-            <span className="text-xs text-amber-600 font-medium">
+            <span style={{ fontSize: "12px", fontWeight: 500, color: "#d97706" }}>
               Paused until {new Date(dndUntil!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </span>
             <button
+              className="text-xs font-medium cursor-pointer"
+              style={{ color: "#6366f1", background: "none", border: "none" }}
               onClick={() => setDnd(null)}
-              className="text-xs text-blue-500 hover:text-blue-600 font-medium"
             >
               Resume
             </button>
           </div>
         ) : (
-          <div className="flex gap-1">
-            <span className="text-xs text-gray-500 mr-1 self-center">Pause:</span>
+          <div className="flex items-center gap-1.5">
+            <span style={{ fontSize: "12px", color: isDark ? "#6b7280" : "#9ca3af", fontWeight: 500, marginRight: "2px" }}>Pause:</span>
             {[
               { label: "1h", hours: 1 },
               { label: "2h", hours: 2 },
@@ -299,7 +347,26 @@ export default function App() {
               <button
                 key={label}
                 onClick={() => setDnd(hours)}
-                className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
+                className="cursor-pointer transition-all duration-200"
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 500,
+                  padding: "4px 10px",
+                  borderRadius: "8px",
+                  background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                  color: isDark ? "#9ca3af" : "#6b7280",
+                  border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"}`,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.1)" : "rgba(99,102,241,0.06)";
+                  e.currentTarget.style.color = isDark ? "#e5e7eb" : "#4f46e5";
+                  e.currentTarget.style.borderColor = isDark ? "rgba(255,255,255,0.15)" : "rgba(99,102,241,0.15)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+                  e.currentTarget.style.color = isDark ? "#9ca3af" : "#6b7280";
+                  e.currentTarget.style.borderColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+                }}
               >
                 {label}
               </button>
@@ -309,8 +376,8 @@ export default function App() {
       </div>
 
       {/* Collapsible: Review Settings */}
-      <details className="border-t border-gray-100 pt-2 mb-2">
-        <summary className="text-xs font-medium text-gray-500 cursor-pointer select-none py-1">
+      <details className="pt-2 mb-1" style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(99,102,241,0.06)"}` }}>
+        <summary className="text-xs font-semibold cursor-pointer select-none py-1.5 transition-colors duration-200" style={{ color: isDark ? "#9ca3af" : "#6b7280", letterSpacing: "0.01em" }}>
           Review Settings
         </summary>
         <div className="mt-2 space-y-3">
@@ -344,7 +411,7 @@ export default function App() {
                 setMaxToastsPerDay(val);
                 chrome.storage.sync.set({ maxToastsPerDay: val });
               }}
-              className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500"
             />
             <div className="flex justify-between text-[10px] text-gray-500 mt-0.5">
               <span>1</span>
@@ -368,7 +435,7 @@ export default function App() {
                   setDailyGoalMutation({ deviceId, goal: val });
                 }
               }}
-              className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500"
             />
             <div className="flex justify-between text-[10px] text-gray-500 mt-0.5">
               <span>1</span>
@@ -406,8 +473,8 @@ export default function App() {
       </details>
 
       {/* Collapsible: Language */}
-      <details className="border-t border-gray-100 pt-2 mb-2">
-        <summary className="text-xs font-medium text-gray-500 cursor-pointer select-none py-1">
+      <details className="pt-2 mb-1" style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(99,102,241,0.06)"}` }}>
+        <summary className="text-xs font-semibold cursor-pointer select-none py-1.5 transition-colors duration-200" style={{ color: isDark ? "#9ca3af" : "#6b7280", letterSpacing: "0.01em" }}>
           Language
         </summary>
         <div className="mt-2 space-y-3">
@@ -466,8 +533,8 @@ export default function App() {
       </details>
 
       {/* Collapsible: Appearance */}
-      <details className={`border-t ${isDark ? "border-gray-700" : "border-gray-100"} pt-2 mb-2`}>
-        <summary className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} cursor-pointer select-none py-1`}>
+      <details className="pt-2 mb-1" style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(99,102,241,0.06)"}` }}>
+        <summary className="text-xs font-semibold cursor-pointer select-none py-1.5 transition-colors duration-200" style={{ color: isDark ? "#9ca3af" : "#6b7280", letterSpacing: "0.01em" }}>
           Appearance
         </summary>
         <div className="mt-2 space-y-3">
@@ -483,15 +550,15 @@ export default function App() {
                     setTheme(t);
                     chrome.storage.sync.set({ theme: t });
                   }}
-                  className={`flex-1 py-1.5 px-2 text-xs rounded-lg transition-colors ${
-                    theme === t
-                      ? "bg-blue-500 text-white"
-                      : isDark
-                        ? "bg-gray-800 text-gray-300 hover:bg-gray-700"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                  }`}
+                  className="flex-1 py-1.5 px-2 text-xs rounded-lg transition-all duration-200 cursor-pointer"
+                  style={{
+                    fontWeight: theme === t ? 600 : 500,
+                    ...(theme === t
+                      ? { background: "linear-gradient(135deg, #6366f1 0%, #7c3aed 100%)", color: "#fff", border: "1px solid transparent", boxShadow: "0 2px 8px rgba(99,102,241,0.25)" }
+                      : { background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", color: isDark ? "#9ca3af" : "#6b7280", border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"}` }),
+                  }}
                 >
-                  {t === "light" ? "☀️ Light" : t === "dark" ? "🌙 Dark" : "💻 System"}
+                  {t === "light" ? "Light" : t === "dark" ? "Dark" : "System"}
                 </button>
               ))}
             </div>
@@ -500,8 +567,8 @@ export default function App() {
       </details>
 
       {/* Collapsible: Voice & Pronunciation */}
-      <details className={`border-t ${isDark ? "border-gray-700" : "border-gray-100"} pt-2 mb-2`}>
-        <summary className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} cursor-pointer select-none py-1`}>
+      <details className="pt-2 mb-1" style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(99,102,241,0.06)"}` }}>
+        <summary className="text-xs font-semibold cursor-pointer select-none py-1.5 transition-colors duration-200" style={{ color: isDark ? "#9ca3af" : "#6b7280", letterSpacing: "0.01em" }}>
           Voice & Pronunciation
         </summary>
         <div className="mt-2 space-y-3">
@@ -522,11 +589,13 @@ export default function App() {
                     saveTtsSettings(updated);
                     setPreviewError(null);
                   }}
-                  className={`flex-1 py-1.5 px-2 text-xs rounded-lg transition-colors ${
-                    ttsSettings.engine === eng.id
-                      ? "bg-blue-500 text-white"
-                      : isDark ? "bg-gray-800 text-gray-300 hover:bg-gray-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                  }`}
+                  className="flex-1 py-1.5 px-2 text-xs rounded-lg transition-all duration-200 cursor-pointer"
+                  style={{
+                    fontWeight: ttsSettings.engine === eng.id ? 600 : 500,
+                    ...(ttsSettings.engine === eng.id
+                      ? { background: "linear-gradient(135deg, #6366f1 0%, #7c3aed 100%)", color: "#fff", border: "1px solid transparent", boxShadow: "0 2px 8px rgba(99,102,241,0.25)" }
+                      : { background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", color: isDark ? "#9ca3af" : "#6b7280", border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"}` }),
+                  }}
                 >
                   {eng.label}
                 </button>
@@ -610,7 +679,7 @@ export default function App() {
                     setTtsSettings(updated);
                     saveTtsSettings(updated);
                   }}
-                  className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                  className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                 />
               </div>
             </>
@@ -630,7 +699,7 @@ export default function App() {
                 setTtsSettings(updated);
                 saveTtsSettings(updated);
               }}
-              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-indigo-500"
             />
           </div>
 
@@ -656,8 +725,8 @@ export default function App() {
       </details>
 
       {/* Collapsible: Site & Features */}
-      <details className={`border-t ${isDark ? "border-gray-700" : "border-gray-100"} pt-2 mb-2`}>
-        <summary className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"} cursor-pointer select-none py-1`}>
+      <details className="pt-2 mb-1" style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(99,102,241,0.06)"}` }}>
+        <summary className="text-xs font-semibold cursor-pointer select-none py-1.5 transition-colors duration-200" style={{ color: isDark ? "#9ca3af" : "#6b7280", letterSpacing: "0.01em" }}>
           Site & Features
         </summary>
         <div className="mt-2">
@@ -771,7 +840,7 @@ export default function App() {
         </div>
       </details>
 
-      <p className="text-xs text-gray-500 text-center mt-3">
+      <p className="text-center mt-4" style={{ fontSize: "11px", color: isDark ? "#4b5563" : "#9ca3af", fontWeight: 500 }}>
         Select any English word on a page to translate
       </p>
       </>
@@ -919,22 +988,26 @@ function StatCard({
   color: string;
   delay?: number;
 }) {
-  const colors: Record<string, string> = {
-    blue: "bg-blue-50 text-blue-700",
-    amber: "bg-amber-50 text-amber-700",
-    purple: "bg-purple-50 text-purple-700",
-    green: "bg-green-50 text-green-700",
+  const styles: Record<string, { bg: string; text: string; border: string; accent: string }> = {
+    blue: { bg: "rgba(99,102,241,0.06)", text: "#4f46e5", border: "rgba(99,102,241,0.1)", accent: "#6366f1" },
+    amber: { bg: "rgba(245,158,11,0.06)", text: "#d97706", border: "rgba(245,158,11,0.1)", accent: "#f59e0b" },
+    purple: { bg: "rgba(139,92,246,0.06)", text: "#7c3aed", border: "rgba(139,92,246,0.1)", accent: "#8b5cf6" },
+    green: { bg: "rgba(16,185,129,0.06)", text: "#059669", border: "rgba(16,185,129,0.1)", accent: "#10b981" },
   };
+  const s = styles[color] || styles.blue;
 
   return (
     <div
-      className={`rounded-lg p-3 ${colors[color] || colors.blue}`}
       style={{
-        animation: `fadeInUp 250ms cubic-bezier(0.0, 0.0, 0.2, 1.0) ${delay}ms both`,
+        padding: "12px 14px",
+        borderRadius: "14px",
+        background: s.bg,
+        border: `1px solid ${s.border}`,
+        animation: `fadeInUp 300ms cubic-bezier(0.34, 1.56, 0.64, 1.0) ${delay}ms both`,
       }}
     >
-      <p className="text-2xl font-bold">{value}</p>
-      <p className="text-xs opacity-70">{label}</p>
+      <p style={{ fontSize: "26px", fontWeight: 700, color: s.text, letterSpacing: "-0.02em", lineHeight: 1.1 }}>{value}</p>
+      <p style={{ fontSize: "11px", fontWeight: 500, color: s.accent, opacity: 0.8, marginTop: "2px" }}>{label}</p>
     </div>
   );
 }
@@ -973,7 +1046,10 @@ function ReviewCountdown({ isDark }: { isDark: boolean }) {
 
   if (remainingMs <= 0) {
     return (
-      <div className={`text-center text-xs mb-2 font-medium ${isDark ? "text-amber-400" : "text-amber-600"}`}>
+      <div
+        className="text-center text-xs mb-3 font-semibold"
+        style={{ color: isDark ? "#fbbf24" : "#d97706", animation: "fadeInUp 200ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both" }}
+      >
         Review incoming...
       </div>
     );
@@ -983,8 +1059,10 @@ function ReviewCountdown({ isDark }: { isDark: boolean }) {
   const time = `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   return (
-    <div className={`text-center text-xs mb-2 font-medium ${textClass}`}
-      style={{ animation: "fadeInUp 200ms cubic-bezier(0.0, 0.0, 0.2, 1.0) both" }}>
+    <div
+      className="text-center text-xs mb-3 font-medium"
+      style={{ color: isDark ? "#818cf8" : "#6366f1", animation: "fadeInUp 200ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both" }}
+    >
       Next review in {time}
     </div>
   );
@@ -1014,7 +1092,7 @@ function SettingToggle({
           width: "32px",
           height: "16px",
           borderRadius: "8px",
-          background: checked ? "#3b82f6" : "#d1d5db",
+          background: checked ? "#6366f1" : "#d1d5db",
           border: "none",
           cursor: "pointer",
           padding: 0,
