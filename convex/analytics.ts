@@ -281,8 +281,8 @@ export const getInsights = query({
     // Hardest words (highest difficulty)
     const hardestWords = words
       .filter((w) => {
-        if (w.fsrsDifficulty != null) return w.fsrsDifficulty >= 5 || w.isHard;
-        return (w.difficulty || 1) > 1.5 || w.isHard;
+        if (w.fsrsDifficulty != null) return w.fsrsDifficulty >= 5;
+        return (w.difficulty || 1) > 1.5;
       })
       .sort((a, b) => {
         const da = a.fsrsDifficulty ?? ((a.difficulty || 1) - 1) / 2 * 9 + 1;

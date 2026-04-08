@@ -54,6 +54,15 @@ function MCChallenge({ challenge, onResult, progress, eliminatedOptions }: Revie
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [showResult, handleSelect, challenge.options, eliminatedOptions]);
 
+  // Mouse follow for radial glow
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    e.currentTarget.style.setProperty("--mouse-x", `${x}%`);
+    e.currentTarget.style.setProperty("--mouse-y", `${y}%`);
+  }, []);
+
   const promptLabel = challenge.type === "mc-word-to-translation"
     ? "What does this mean?"
     : "Which word matches?";
@@ -61,45 +70,46 @@ function MCChallenge({ challenge, onResult, progress, eliminatedOptions }: Revie
   return (
     <div className="text-center">
       {progress && <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">{progress}</p>}
-      <p className="text-sm text-gray-500 mb-2">{promptLabel}</p>
-      <p className="text-2xl font-bold text-gray-900 mb-6">{challenge.prompt}</p>
+      <p className="text-sm text-gray-400 font-medium mb-2">{promptLabel}</p>
+      <p className="text-2xl font-bold text-gray-900 mb-7">{challenge.prompt}</p>
 
       <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto">
         {challenge.options?.map((opt, i) => {
           const isEliminated = eliminatedOptions?.includes(i);
-          let style = "bg-white hover:bg-gray-50 border-gray-200 cursor-pointer";
-          if (isEliminated && !showResult) {
-            style = "opacity-20 border-gray-200 cursor-default line-through";
-          } else if (showResult) {
+          let extraClass = "";
+
+          if (showResult) {
             if (i === challenge.correctIndex) {
-              style = "bg-green-50 border-green-300 text-green-700 ring-1 ring-green-200";
+              extraClass = "review-option-correct";
             } else if (i === selected) {
-              style = "bg-red-50 border-red-300 text-red-700";
+              extraClass = "review-option-wrong";
             } else {
-              style = "opacity-40 border-gray-200 cursor-default";
+              extraClass = "review-option-dimmed";
             }
+          } else if (isEliminated) {
+            extraClass = "review-option-dimmed line-through";
           }
 
           return (
             <button
               key={i}
               onClick={() => handleSelect(i)}
-              disabled={showResult || isEliminated}
-              className={`relative py-3 px-4 rounded-xl text-sm font-medium border transition-all active:scale-[0.97] ${style}`}
+              onMouseMove={handleMouseMove}
+              disabled={showResult || !!isEliminated}
+              className={`review-option-btn review-option-enter ${extraClass}`}
+              style={{ animationDelay: `${i * 60}ms` }}
             >
-              <span className="absolute top-1 left-2 text-[10px] text-gray-300 font-mono">{i + 1}</span>
-              {opt}
+              <span className="absolute top-1.5 left-2.5 text-[10px] text-gray-300 font-mono tabular-nums">{i + 1}</span>
+              <span className="text-sm font-medium text-gray-700">{opt}</span>
             </button>
           );
         })}
       </div>
 
       {!showResult && (
-        <p className="text-[11px] text-gray-400 text-center mt-3 flex items-center justify-center gap-2">
-          {[1, 2, 3, 4].map((n) => (
-            <span key={n} className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-mono text-gray-500 border border-gray-200">{n}</kbd>
-            </span>
+        <p className="text-[11px] text-gray-400 text-center mt-4 flex items-center justify-center gap-2">
+          {[1, 2, 3, 4].slice(0, challenge.options?.length ?? 4).map((n) => (
+            <kbd key={n} className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-mono text-gray-500 border border-gray-200">{n}</kbd>
           ))}
           <span className="text-gray-400">to select</span>
         </p>
@@ -131,21 +141,20 @@ function TypeChallenge({ challenge, onResult, progress, hintChars }: ReviewChall
     onResult(correct, rating, input.trim());
   }, [input, showResult, challenge, onResult]);
 
-  const promptLabel = challenge.type === "type-translation"
-    ? "Type the meaning:"
-    : "Type the word:";
-
   const placeholder = hintChars
     ? `${hintChars}...`
     : challenge.type === "type-translation" ? "Type translation..." : "Type the word...";
 
+  const inputStateClass = showResult
+    ? isCorrect ? "correct" : "wrong"
+    : "";
+
   return (
     <div className="text-center">
       {progress && <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">{progress}</p>}
-      <p className="text-sm text-gray-500 mb-2">{promptLabel}</p>
-      <p className="text-2xl font-bold text-gray-900 mb-6">{challenge.prompt}</p>
+      <p className="text-2xl font-bold text-gray-900 mb-7">{challenge.prompt}</p>
 
-      <div className="max-w-sm mx-auto">
+      <div className="max-w-sm mx-auto" style={{ animation: "fadeInUp 300ms ease-out both" }}>
         <input
           ref={inputRef}
           type="text"
@@ -154,13 +163,7 @@ function TypeChallenge({ challenge, onResult, progress, hintChars }: ReviewChall
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           disabled={showResult}
           placeholder={placeholder}
-          className={`w-full py-3 px-4 rounded-xl border text-center text-lg focus:outline-none transition-all ${
-            showResult
-              ? isCorrect
-                ? "border-green-300 bg-green-50"
-                : "border-red-300 bg-red-50 line-through text-red-400"
-              : "border-gray-200 focus:ring-2 focus:ring-indigo-300 focus:border-transparent"
-          }`}
+          className={`w-full review-type-input ${inputStateClass} ${showResult && !isCorrect ? "line-through text-red-400" : ""}`}
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
@@ -170,7 +173,7 @@ function TypeChallenge({ challenge, onResult, progress, hintChars }: ReviewChall
           <button
             onClick={handleSubmit}
             disabled={!input.trim()}
-            className="mt-3 py-2.5 px-8 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-sm font-medium rounded-xl hover:from-blue-600 hover:to-indigo-600 shadow-sm shadow-blue-200 transition-all hover:shadow-md active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="mt-4 review-check-btn"
           >
             Check
           </button>
@@ -178,7 +181,8 @@ function TypeChallenge({ challenge, onResult, progress, hintChars }: ReviewChall
 
         {!showResult && (
           <p className="text-[11px] text-gray-400 text-center mt-3 flex items-center justify-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-mono text-gray-500 border border-gray-200">Enter</kbd> to check
+            <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-mono text-gray-500 border border-gray-200">Enter</kbd>
+            to check
           </p>
         )}
       </div>

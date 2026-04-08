@@ -30,11 +30,13 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
+    "@types/three": "^0.183.1",
     "@wxt-dev/module-react": "^1.1.5",
     "convex": "^1.32.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwindcss": "^4.2.1",
+    "three": "^0.183.2",
     "wxt": "^0.20.18"
   }
 }

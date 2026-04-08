@@ -1,18 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { lemmatize } from "../../src/lib/lemmatize";
-import { detectPhrasesInSentence, type DetectedPhrase } from "../../src/lib/phrase-detector";
-import { speak as ttsSpeak, stopSpeaking } from "../../src/lib/tts";
-
-interface Achievement {
-  id: string;
-  name: string;
-  icon: string;
-  xp: number;
-}
 
 interface SentenceAnalysis {
   grammar: string;
-  phrases: { phrase: string; type: string; meaning: string }[];
   simplified: string;
   vocabulary: { word: string; role: string }[];
 }
@@ -22,9 +11,7 @@ interface SentencePopupProps {
   position: { x: number; y: number; placeAbove?: boolean };
   onClose: () => void;
   vocabLemmas?: Set<string>;
-  onSaved?: (lemma: string) => void;
   onWordClick?: (word: string) => void;
-  onAchievement?: (achievement: Achievement) => void;
 }
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -34,23 +21,17 @@ export function SentencePopup({
   position,
   onClose,
   vocabLemmas,
-  onSaved,
   onWordClick,
-  onAchievement,
 }: SentencePopupProps) {
   const [translation, setTranslation] = useState<string | null>(null);
   const [translating, setTranslating] = useState(true);
-  const [detectedPhrases, setDetectedPhrases] = useState<(DetectedPhrase & { startIdx: number; endIdx: number })[]>([]);
   const [aiAnalysis, setAiAnalysis] = useState<SentenceAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [visible, setVisible] = useState(false);
-  const [savedCollocations, setSavedCollocations] = useState<Set<string>>(new Set());
   const [translationError, setTranslationError] = useState(false);
   const [translationKey, setTranslationKey] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -71,12 +52,6 @@ export function SentencePopup({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
-
-  // Detect phrases in the sentence
-  useEffect(() => {
-    const phrases = detectPhrasesInSentence(sentence);
-    setDetectedPhrases(phrases);
-  }, [sentence]);
 
   // Translate sentence
   useEffect(() => {
@@ -105,12 +80,14 @@ export function SentencePopup({
 
   function speak() {
     if (speaking) {
-      stopSpeaking();
+      chrome.runtime.sendMessage({ type: "STOP_SPEAKING" });
       setSpeaking(false);
       return;
     }
     setSpeaking(true);
-    ttsSpeak(sentence).then(() => setSpeaking(false)).catch(() => setSpeaking(false));
+    chrome.runtime.sendMessage({ type: "SPEAK_WORD", word: sentence })
+      .then(() => setSpeaking(false))
+      .catch(() => setSpeaking(false));
   }
 
   function copyTranslation() {
@@ -119,29 +96,6 @@ export function SentencePopup({
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
-  }
-
-  async function saveSentence() {
-    if (saved || saving || !translation) return;
-    setSaving(true);
-    try {
-      const res = await chrome.runtime.sendMessage({
-        type: "SAVE_WORD",
-        word: sentence,
-        translation,
-        example: sentence,
-        sourceUrl: window.location.href,
-        wordType: "sentence",
-      });
-      if (res?.success) {
-        setSaved(true);
-        onSaved?.(sentence.toLowerCase());
-      }
-    } catch {
-      // ignore
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function runAnalysis() {
@@ -449,91 +403,6 @@ export function SentencePopup({
             )}
           </div>
 
-          {/* Detected collocations */}
-          {detectedPhrases.length > 0 && (
-            <div style={{ marginBottom: "12px", animation: "sentenceFadeIn 300ms ease 150ms both" }}>
-              <div
-                style={{
-                  fontSize: "10px",
-                  fontWeight: 600,
-                  color: "#94a3b8",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                  marginBottom: "6px",
-                }}
-              >
-                Detected phrases
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                {detectedPhrases.map((dp) => {
-                  const isSaved = savedCollocations.has(dp.phrase);
-                  return (
-                    <button
-                      key={dp.phrase}
-                      onClick={async () => {
-                        if (isSaved) return;
-                        try {
-                          await chrome.runtime.sendMessage({
-                            type: "SAVE_COLLOCATION",
-                            collocation: dp.phrase,
-                            words: dp.phrase.split(/\s+/),
-                            category: dp.type === "phrasal_verb" ? "phrasal verb" : dp.type,
-                            sourceContext: sentence,
-                          });
-                          setSavedCollocations((prev) => new Set(prev).add(dp.phrase));
-                        } catch {}
-                      }}
-                      style={{
-                        fontSize: "12px",
-                        padding: "4px 10px",
-                        borderRadius: "8px",
-                        border: isSaved ? "1px solid #a7f3d0" : "1px solid #e2e8f0",
-                        background: isSaved ? "#ecfdf5" : "#fff",
-                        color: isSaved ? "#059669" : "#475569",
-                        cursor: isSaved ? "default" : "pointer",
-                        fontWeight: 500,
-                        fontFamily: FONT,
-                        transition: "all 150ms ease",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "4px",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isSaved) {
-                          (e.currentTarget).style.borderColor = "#6366f1";
-                          (e.currentTarget).style.color = "#4338ca";
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isSaved) {
-                          (e.currentTarget).style.borderColor = "#e2e8f0";
-                          (e.currentTarget).style.color = "#475569";
-                        }
-                      }}
-                    >
-                      {isSaved && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                      {dp.phrase}
-                      <span
-                        style={{
-                          fontSize: "9px",
-                          fontWeight: 600,
-                          color: isSaved ? "#059669" : "#94a3b8",
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        {dp.type === "phrasal_verb" ? "PV" : dp.type === "collocation" ? "COL" : "ID"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* AI Analysis section */}
           {showAnalysis && (
             <div
@@ -598,44 +467,6 @@ export function SentencePopup({
                     </div>
                     <div style={{ fontSize: "13px", color: "#334155", lineHeight: 1.5 }}>{aiAnalysis.grammar}</div>
                   </div>
-
-                  {/* Phrases */}
-                  {aiAnalysis.phrases.length > 0 && (
-                    <div style={{ marginBottom: "8px" }}>
-                      <div style={{ fontSize: "10px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "3px" }}>
-                        Key Phrases
-                      </div>
-                      {aiAnalysis.phrases.map((p, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            display: "flex",
-                            alignItems: "flex-start",
-                            gap: "6px",
-                            marginBottom: "3px",
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: "12px",
-                              padding: "1px 6px",
-                              borderRadius: "4px",
-                              background: "#eef2ff",
-                              color: "#4338ca",
-                              fontWeight: 500,
-                              whiteSpace: "nowrap",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {p.phrase}
-                          </span>
-                          <span style={{ fontSize: "12px", color: "#64748b", lineHeight: 1.4 }}>
-                            {p.meaning}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
 
                   {/* Simplified */}
                   {aiAnalysis.simplified && (
@@ -702,87 +533,7 @@ export function SentencePopup({
               animation: "sentenceFadeIn 300ms ease 200ms both",
             }}
           >
-            {saved ? (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "8px 14px",
-                  borderRadius: "10px",
-                  background: "#ecfdf5",
-                  border: "1px solid #a7f3d0",
-                  animation: "sentenceSavePop 400ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                <span style={{ fontSize: "13px", fontWeight: 600, color: "#059669" }}>
-                  Saved
-                </span>
-              </div>
-            ) : (
-              <button
-                onClick={saveSentence}
-                disabled={saving || !translation}
-                style={{
-                  padding: "8px 16px",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  borderRadius: "10px",
-                  background: saving || !translation ? "#94a3b8" : "#4f46e5",
-                  color: "#fff",
-                  cursor: saving || !translation ? "default" : "pointer",
-                  border: "none",
-                  fontFamily: FONT,
-                  transition: "all 150ms ease",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
-                onMouseEnter={(e) => {
-                  if (!saving && translation) (e.currentTarget).style.background = "#4338ca";
-                }}
-                onMouseLeave={(e) => {
-                  if (!saving && translation) (e.currentTarget).style.background = "#4f46e5";
-                }}
-                onMouseDown={(e) => {
-                  (e.currentTarget).style.transform = "scale(0.97)";
-                }}
-                onMouseUp={(e) => {
-                  (e.currentTarget).style.transform = "scale(1)";
-                }}
-              >
-                {saving ? (
-                  <>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        width: "12px",
-                        height: "12px",
-                        borderRadius: "50%",
-                        border: "2px solid rgba(255,255,255,0.3)",
-                        borderTopColor: "#fff",
-                        animation: "spin 0.6s linear infinite",
-                      }}
-                    />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                      <polyline points="17 21 17 13 7 13 7 21" />
-                      <polyline points="7 3 7 8 15 8" />
-                    </svg>
-                    Save Phrase
-                  </>
-                )}
-              </button>
-            )}
-
-            {!showAnalysis && !saved && (
+            {!showAnalysis && (
               <button
                 onClick={runAnalysis}
                 style={{
@@ -834,11 +585,6 @@ export function SentencePopup({
         @keyframes sentenceFadeIn {
           from { opacity: 0; transform: translateY(4px); }
           to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes sentenceSavePop {
-          0% { transform: scale(0.9); opacity: 0; }
-          50% { transform: scale(1.03); }
-          100% { transform: scale(1); opacity: 1; }
         }
       `}</style>
     </div>

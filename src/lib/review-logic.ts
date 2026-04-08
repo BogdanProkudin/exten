@@ -7,7 +7,6 @@ interface Word {
   consecutiveCorrect?: number;
   intervalDays?: number;
   status: "new" | "learning" | "known";
-  isHard?: boolean;
   type?: string;
   // FSRS fields
   fsrsStability?: number;
@@ -31,8 +30,7 @@ export function getReviewScore(word: Word): number {
     if (word.fsrsState === "new") return 1000;
     const card = cardFromWord(word);
     const R = computeRetrievability(card, now);
-    let score = (1 - R) * 100;
-    if (word.isHard) score += 20;
+    const score = (1 - R) * 100;
     return score;
   }
 

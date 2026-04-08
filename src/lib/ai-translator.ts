@@ -26,7 +26,6 @@ export interface SmartTranslation {
   contextualUsage: {
     explanation: string;
     examples: string[];
-    commonPhrases: string[];
     register: 'formal' | 'informal' | 'neutral' | 'technical' | 'slang';
   };
   learningTips: {
@@ -117,7 +116,7 @@ export class AITranslator {
   private buildTranslationPrompt(word: string, context: TranslationContext): string {
     return `You are an expert language teacher providing comprehensive translation and learning information.
 
-Word/phrase to translate: "${sanitizeForPrompt(word)}"
+Word to translate: "${sanitizeForPrompt(word)}"
 Context: "${sanitizeForPrompt(context.surroundingText)}"
 Domain: ${context.domain}
 Content type: ${context.contentType}
@@ -136,7 +135,6 @@ Provide a comprehensive JSON response with this structure:
   "contextualUsage": {
     "explanation": "how it's used in this specific context",
     "examples": ["example sentence 1", "example sentence 2"],
-    "commonPhrases": ["phrase1", "phrase2"],
     "register": "formal/informal/neutral/technical/slang"
   },
   "learningTips": {
@@ -179,7 +177,7 @@ Be clear and educational for a ${context.userLevel} learner.`;
   }
 
   private buildBatchPrompt(words: string[], context: TranslationContext): string {
-    return `Translate these ${words.length} words/phrases in the context of ${context.contentType} content:
+    return `Translate these ${words.length} words in the context of ${context.contentType} content:
 
 Words: ${words.map(w => `"${sanitizeForPrompt(w)}"`).join(', ')}
 Context: "${sanitizeForPrompt(context.surroundingText)}"
@@ -265,7 +263,6 @@ Only mark as ambiguous if context doesn't make meaning clear.`;
         contextualUsage: {
           explanation: parsed.contextualUsage?.explanation || '',
           examples: Array.isArray(parsed.contextualUsage?.examples) ? parsed.contextualUsage.examples : [],
-          commonPhrases: Array.isArray(parsed.contextualUsage?.commonPhrases) ? parsed.contextualUsage.commonPhrases : [],
           register: parsed.contextualUsage?.register || 'neutral'
         },
         learningTips: {
@@ -340,7 +337,6 @@ Only mark as ambiguous if context doesn't make meaning clear.`;
           contextualUsage: {
             explanation: '',
             examples: [],
-            commonPhrases: [],
             register: 'neutral'
           },
           learningTips: {
@@ -396,7 +392,6 @@ Only mark as ambiguous if context doesn't make meaning clear.`;
       contextualUsage: {
         explanation: '',
         examples: [],
-        commonPhrases: [],
         register: 'neutral'
       },
       learningTips: {

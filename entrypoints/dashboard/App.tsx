@@ -11,7 +11,6 @@ import {
 import type { Id, Doc } from "../../convex/_generated/dataModel";
 import { ErrorBoundary } from "../../src/components/ErrorBoundary";
 import { computeStrength, strengthColor } from "../../src/lib/memory-strength";
-import { generatePhraseBlank } from "../../src/lib/phrase-review";
 import { shouldShowTip, markTipSeen, dismissTipForever, incrementCounter } from "../../src/lib/tips";
 import { ImportExport } from "./ImportExport";
 import { speak } from "../../src/lib/tts";
@@ -21,9 +20,10 @@ import { WordOfTheDay } from "./WordOfTheDay";
 import { WritingPractice } from "./WritingPractice";
 import WordMap from "./WordMap";
 import { DailyGoalRing } from "./DailyGoalRing";
-import { SentencesTab } from "./SentencesList";
 import { ReviewSession, NoWordsView } from "./ReviewSession";
 import { OwlAvatar } from "../../src/components/OwlAvatar";
+// DashboardBackground removed — clean CSS gradient only
+import { LevelUpCelebration } from "./LevelUpCelebration";
 
 // Word document type from Convex schema
 type WordDoc = Doc<"words">;
@@ -167,11 +167,11 @@ function NewTabReviewTimer() {
 
 export default function App() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"review" | "vocabulary" | "sentences" | "hard" | "stats" | "settings">(() => {
+  const [activeTab, setActiveTab] = useState<"review" | "vocabulary" | "stats" | "settings">(() => {
     const hash = window.location.hash.replace("#", "");
-    if (hash === "review" || hash === "vocabulary" || hash === "sentences" || hash === "hard" || hash === "stats" || hash === "settings") return hash;
+    if (hash === "review" || hash === "vocabulary" || hash === "stats" || hash === "settings") return hash;
     const params = new URLSearchParams(window.location.search);
-    return (params.get("tab") as "review" | "vocabulary" | "sentences" | "hard" | "stats" | "settings") || "review";
+    return (params.get("tab") as "review" | "vocabulary" | "stats" | "settings") || "review";
   });
   const [showImportExport, setShowImportExport] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
@@ -186,7 +186,7 @@ export default function App() {
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace("#", "");
-      if (hash === "review" || hash === "vocabulary" || hash === "sentences" || hash === "hard" || hash === "stats" || hash === "settings") {
+      if (hash === "review" || hash === "vocabulary" || hash === "stats" || hash === "settings") {
         setActiveTab(hash);
       }
     };
@@ -219,7 +219,8 @@ export default function App() {
   const greeting = getGreeting();
 
   return (
-    <div className="min-h-screen" style={{ background: "linear-gradient(135deg, #f8fafc 0%, #eef2ff 50%, #f0fdf4 100%)" }}>
+    <div className="min-h-screen relative" style={{ background: "linear-gradient(135deg, #f8fafc 0%, #eef2ff 50%, #f0fdf4 100%)" }}>
+      <div className="relative">
       <header className="sticky top-0 z-10 border-b border-gray-200/60" style={{ background: "rgba(255, 255, 255, 0.72)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", animation: "fadeInUp 300ms cubic-bezier(0.0, 0.0, 0.2, 1.0) both" }}>
         <div className="max-w-4xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -270,15 +271,11 @@ export default function App() {
       <main className="max-w-4xl mx-auto px-6 py-8">
         <ErrorBoundary>
           {!deviceId ? (
-            <LoadingSkeleton />
+            <ReviewLoadingSpinner />
           ) : (
             <div key={activeTab} role="tabpanel" aria-labelledby={`tab-${activeTab}`} className="animate-tab-switch">
               {activeTab === "review" ? (
-                <ReviewTab deviceId={deviceId} />
-              ) : activeTab === "sentences" ? (
-                <SentencesTab deviceId={deviceId} />
-              ) : activeTab === "hard" ? (
-                <HardWordsTab deviceId={deviceId} />
+                <ReviewTab deviceId={deviceId} onShowQuiz={() => setShowQuiz(true)} onShowWriting={() => setShowWriting(true)} />
               ) : activeTab === "stats" ? (
                 <StatsTab deviceId={deviceId} />
               ) : activeTab === "settings" ? (
@@ -323,21 +320,15 @@ export default function App() {
           onClose={() => setShowWordMap(false)}
         />
       )}
+      </div>{/* close z-10 wrapper */}
     </div>
   );
 }
 
-function LoadingSkeleton() {
+function ReviewLoadingSpinner() {
   return (
-    <div className="flex justify-center" style={{ animation: "fadeInUp 300ms cubic-bezier(0.0, 0.0, 0.2, 1.0) both" }}>
-      <div className="max-w-lg w-full space-y-4">
-        <div className="h-56 bg-white/60 rounded-2xl skeleton-shimmer border border-gray-100" />
-        <div className="flex gap-3">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="flex-1 h-16 bg-white/60 rounded-xl skeleton-shimmer border border-gray-100" />
-          ))}
-        </div>
-      </div>
+    <div className="flex items-center justify-center h-64">
+      <div className="w-6 h-6 border-2 border-indigo-200 border-t-indigo-500 rounded-full animate-spin" />
     </div>
   );
 }
@@ -413,12 +404,6 @@ function TabNavBar({ activeTab, setActiveTab }: { activeTab: string; setActiveTa
       <TabButton active={activeTab === "vocabulary"} onClick={() => setActiveTab("vocabulary")} id="vocabulary">
         📚 Words
       </TabButton>
-      <TabButton active={activeTab === "sentences"} onClick={() => setActiveTab("sentences")} id="sentences">
-        📝 Sentences
-      </TabButton>
-      <TabButton active={activeTab === "hard"} onClick={() => setActiveTab("hard")} id="hard">
-        ⭐ Hard
-      </TabButton>
       <TabButton active={activeTab === "stats"} onClick={() => setActiveTab("stats")} id="stats">
         📊 Stats
       </TabButton>
@@ -431,7 +416,7 @@ function TabNavBar({ activeTab, setActiveTab }: { activeTab: string; setActiveTa
 
 // --- Review Tab ---
 
-function ReviewTab({ deviceId }: { deviceId: string }) {
+function ReviewTab({ deviceId, onShowQuiz, onShowWriting }: { deviceId: string; onShowQuiz: () => void; onShowWriting: () => void }) {
   const [tipVisible, setTipVisible] = useState(false);
   const dailyProgress = useQuery(api.gamification.getDailyProgress, { deviceId });
 
@@ -488,91 +473,13 @@ function ReviewTab({ deviceId }: { deviceId: string }) {
         </div>
       )}
 
-      {/* Filter + review cards — session UI now handles streak/progress */}
-      <ReviewContent deviceId={deviceId} streak={dailyProgress?.streak ?? 0} />
+      {/* Filter + review cards */}
+      <ReviewContent deviceId={deviceId} dailyProgress={dailyProgress} onShowQuiz={onShowQuiz} onShowWriting={onShowWriting} />
     </div>
   );
 }
 
-// --- Morphing Blob Toggle (Words / Sentences) ---
-function ReviewModeToggle({
-  mode, onChange,
-}: {
-  mode: "words" | "sentences";
-  onChange: (m: "words" | "sentences") => void;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const blobRef = useRef<HTMLDivElement>(null);
-
-  // Position the blob behind the active button
-  useEffect(() => {
-    const container = containerRef.current;
-    const blob = blobRef.current;
-    if (!container || !blob) return;
-
-    const activeBtn = container.querySelector('[data-active="true"]') as HTMLElement | null;
-    if (!activeBtn) return;
-
-    const cRect = container.getBoundingClientRect();
-    const bRect = activeBtn.getBoundingClientRect();
-
-    blob.style.transform = `translateX(${bRect.left - cRect.left}px)`;
-    blob.style.width = `${bRect.width}px`;
-    blob.style.height = `${bRect.height}px`;
-  }, [mode]);
-
-  const options: { label: string; value: "words" | "sentences" }[] = [
-    { label: "Words", value: "words" },
-    { label: "Sentences", value: "sentences" },
-  ];
-
-  return (
-    <div className="flex justify-center mb-5">
-      <div
-        ref={containerRef}
-        className="relative flex gap-0.5 rounded-2xl p-1.5"
-        style={{
-          background: "linear-gradient(135deg, rgba(238,240,255,0.9), rgba(230,235,255,0.7))",
-          border: "1px solid rgba(199,210,254,0.4)",
-        }}
-      >
-        {/* Sliding blob */}
-        <div
-          ref={blobRef}
-          className="absolute top-1.5 left-0 rounded-xl pointer-events-none"
-          style={{
-            background: "linear-gradient(135deg, #fff 0%, #f8f9ff 100%)",
-            boxShadow: "0 1px 3px rgba(99,102,241,0.08), 0 4px 12px rgba(99,102,241,0.06)",
-            transition: "transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1), width 300ms cubic-bezier(0.34, 1.56, 0.64, 1)",
-          }}
-        />
-        {options.map(({ label, value }) => {
-          const isActive = mode === value;
-          return (
-            <button
-              key={value}
-              data-active={isActive}
-              onClick={() => { if (!isActive) onChange(value); }}
-              className={`relative z-[1] px-5 py-2 text-xs font-semibold rounded-xl transition-all duration-300 ${
-                isActive ? "text-indigo-700" : "text-gray-400 hover:text-gray-600"
-              }`}
-              style={{
-                letterSpacing: isActive ? "0.02em" : "0",
-                transform: isActive ? "scale(1)" : "scale(0.97)",
-                transition: "color 250ms, letter-spacing 300ms, transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1)",
-              }}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ReviewContent({ deviceId, streak }: { deviceId: string; streak: number }) {
-  const [reviewMode, setReviewMode] = useState<"words" | "sentences">("words");
+function ReviewContent({ deviceId, dailyProgress, onShowQuiz, onShowWriting }: { deviceId: string; dailyProgress: { streak: number } | undefined; onShowQuiz: () => void; onShowWriting: () => void }) {
   const [snapshotWords, setSnapshotWords] = useState<any[] | null>(null);
   const [sessionId, setSessionId] = useState(0);
 
@@ -580,14 +487,10 @@ function ReviewContent({ deviceId, streak }: { deviceId: string; streak: number 
   const reviewedIdsRef = useRef<Set<string>>(new Set());
   const [excludedIds, setExcludedIds] = useState<string[]>([]);
 
-  const typeFilter = reviewMode === "words" ? ["word", "phrase"] : ["sentence"];
-  const isSentenceMode = reviewMode === "sentences";
-
-  const dueWords = useQuery(api.words.getReviewWords, { deviceId, limit: 8, typeFilter, excludeIds: excludedIds });
+  const dueWords = useQuery(api.words.getReviewWords, { deviceId, limit: 8, excludeIds: excludedIds });
   const stats = useQuery(api.words.stats, { deviceId });
   const updateReview = useMutation(api.words.updateReview);
-  const addXP = useMutation(api.gamification.addReviewXP);
-  const allWordsForDistractors = useQuery(api.words.getQuizWords, { deviceId, limit: 50, typeFilter: ["word", "phrase"] });
+  const allWordsForDistractors = useQuery(api.words.getQuizWords, { deviceId, limit: 50 });
 
   // Snapshot due words when available and no active session
   useEffect(() => {
@@ -609,59 +512,40 @@ function ReviewContent({ deviceId, streak }: { deviceId: string; streak: number 
     setSessionId((k) => k + 1);
   }, [snapshotWords]);
 
-  const handleModeChange = useCallback((mode: "words" | "sentences") => {
-    setReviewMode(mode);
-    setSnapshotWords(null);
-    setSessionId((k) => k + 1);
-    // Don't reset reviewedIdsRef — reviewed words stay excluded across mode switches
-  }, []);
+  const totalWords = stats?.total ?? 0;
+  const learningCount = stats?.wordsLearning ?? 0;
+  const masteredCount = stats?.wordsKnown ?? 0;
 
-  // Compute filtered stats from byType breakdown
-  const wordsDue = stats?.needReview;
-  const totalWords = isSentenceMode
-    ? (stats?.byType?.sentences ?? 0)
-    : ((stats?.byType?.words ?? 0) + (stats?.byType?.phrases ?? 0));
-  const learningCount = isSentenceMode
-    ? (stats?.byType?.sentencesLearning ?? 0)
-    : (stats?.byType?.wordsLearning ?? 0);
-  const masteredCount = isSentenceMode
-    ? (stats?.byType?.sentencesKnown ?? 0)
-    : (stats?.byType?.wordsKnown ?? 0);
+  const isLoading = dueWords === undefined || stats === undefined || dailyProgress === undefined;
+  const streak = dailyProgress?.streak ?? 0;
 
-  const isLoading = dueWords === undefined || stats === undefined;
+  if (isLoading) {
+    return <ReviewLoadingSpinner />;
+  }
 
   return (
-    <>
-      <ReviewModeToggle
-        mode={reviewMode}
-        onChange={handleModeChange}
-      />
-
-      {isLoading ? <LoadingSkeleton /> : (
-        <div style={{ minHeight: "60vh" }}>
-          {snapshotWords === null || snapshotWords.length === 0 ? (
-            <NoWordsView
-              streak={streak}
-              totalWords={totalWords}
-              learningCount={learningCount}
-              masteredCount={masteredCount}
-              isSentenceMode={isSentenceMode}
-            />
-          ) : (
-            <ReviewSession
-              key={sessionId}
-              deviceId={deviceId}
-              sessionWords={snapshotWords}
-              allWordsForDistractors={allWordsForDistractors ?? []}
-              streak={streak}
-              onContinue={handleSessionComplete}
-              updateReview={updateReview}
-              addXP={addXP}
-            />
-          )}
-        </div>
+    <div style={{ minHeight: "60vh" }}>
+      {snapshotWords === null || snapshotWords.length === 0 ? (
+        <NoWordsView
+          totalWords={totalWords}
+          learningCount={learningCount}
+          masteredCount={masteredCount}
+          streak={streak}
+          onShowQuiz={onShowQuiz}
+          onShowWriting={onShowWriting}
+        />
+      ) : (
+        <ReviewSession
+          key={sessionId}
+          deviceId={deviceId}
+          sessionWords={snapshotWords}
+          allWordsForDistractors={allWordsForDistractors ?? []}
+          onContinue={handleSessionComplete}
+          updateReview={updateReview}
+          streak={streak}
+        />
       )}
-    </>
+    </div>
   );
 }
 
@@ -705,26 +589,13 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
   const [pendingDeletes, setPendingDeletes] = useState<Map<string, NodeJS.Timeout>>(new Map());
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [strengthFilter, setStrengthFilter] = useState<"all" | "weak">("all");
-  const hasAnimatedRef = useRef(false); // only animate cards on first load
+  const hasAnimatedRef = useRef(false);
   const [sortBy, setSortBy] = useState<"recent" | "strength" | "alphabetical">("recent");
   const [selectedWords, setSelectedWords] = useState<Set<string>>(new Set());
   const [batchMode, setBatchMode] = useState(false);
-  const [hardStarTipVisible, setHardStarTipVisible] = useState(false);
-  const [vocabTypeFilter, setVocabTypeFilter] = useState<"all" | "word" | "phrase">("all");
+  const [searchFocused, setSearchFocused] = useState(false);
   const vocabStats = useQuery(api.words.stats, { deviceId });
 
-  // Track vocab tab opens and check for hard star tip
-  useEffect(() => {
-    incrementCounter("vocabTabOpenCount");
-    shouldShowTip("tip_hard_star").then((show) => {
-      if (show) {
-        setHardStarTipVisible(true);
-        markTipSeen("tip_hard_star");
-      }
-    });
-  }, []);
-
-  // Debounce search — 300ms delay so skeleton has time to show
   useEffect(() => {
     if (searchTerm.length < 2) {
       setDebouncedSearch("");
@@ -748,23 +619,13 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
   const removeBatch = useMutation(api.words.removeBatch);
   const updateReview = useMutation(api.words.updateReview);
   const setStatus = useMutation(api.words.setStatus);
-  const toggleHard = useMutation(api.words.toggleHard);
 
-  // During search: use debounced results when available
   const rawWords = debouncedSearch.length >= 2
     ? (searchResults ?? null)
     : paginatedWords;
-  const typeFiltered = rawWords
-    ? rawWords.filter((w) => {
-        const t = (w as WordDoc).type ?? "word";
-        if (t === "sentence") return false; // sentences live in Sentences tab
-        if (vocabTypeFilter !== "all" && t !== vocabTypeFilter) return false;
-        return true;
-      })
+  const filteredWords = rawWords && strengthFilter === "weak"
+    ? rawWords.filter((w) => computeStrength(w) < 40)
     : rawWords;
-  const filteredWords = typeFiltered && strengthFilter === "weak"
-    ? typeFiltered.filter((w) => computeStrength(w) < 40)
-    : typeFiltered;
   const words = filteredWords && sortBy !== "recent"
     ? [...filteredWords].sort((a, b) => {
         if (sortBy === "strength") return computeStrength(a) - computeStrength(b);
@@ -773,9 +634,7 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
       })
     : filteredWords;
   const isFirstLoad = paginationStatus === "LoadingFirstPage" && searchTerm.length < 2;
-  // Show skeleton while debounce hasn't caught up OR while query is loading
   const isSearching = searchTerm.length >= 2 && (searchTerm !== debouncedSearch || searchResults === undefined);
-  // Timeout: stop showing skeleton after 8s to avoid infinite loading
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   useEffect(() => {
     if (!isFirstLoad) { setLoadingTimedOut(false); return; }
@@ -784,7 +643,6 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
   }, [isFirstLoad]);
   const isLoading = (isFirstLoad && !loadingTimedOut) || isSearching;
 
-  // Mark initial animation as done after first render with words
   useEffect(() => {
     if (words && words.length > 0 && !hasAnimatedRef.current) {
       const t = setTimeout(() => { hasAnimatedRef.current = true; }, 600);
@@ -793,7 +651,6 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
   }, [words]);
 
   const handleDelete = (id: string) => {
-    // Start 3s undo timer
     const timer = setTimeout(async () => {
       setPendingDeletes((prev) => {
         const next = new Map(prev);
@@ -802,7 +659,6 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
       });
       await removeWord({ id: id as Id<"words">, deviceId });
     }, 3000);
-
     setPendingDeletes((prev) => new Map(prev).set(id, timer));
   };
 
@@ -816,7 +672,6 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
     });
   };
 
-  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       pendingDeletes.forEach((timer) => clearTimeout(timer));
@@ -828,18 +683,13 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
   };
 
   const statusBadge = (status: string, wordId: string) => {
-    const styles: Record<string, string> = {
-      new: "bg-blue-100 text-blue-700",
-      learning: "bg-amber-100 text-amber-700",
-      known: "bg-green-100 text-green-700",
-    };
     return (
       <select
         value={status}
         onChange={(e) =>
           handleStatusChange(wordId, e.target.value as "new" | "learning" | "known")
         }
-        className={`text-xs px-2 py-0.5 rounded-full font-medium border-none cursor-pointer ${styles[status] || ""}`}
+        className={`vocab-status-pill ${status}`}
       >
         <option value="new">new</option>
         <option value="learning">learning</option>
@@ -850,114 +700,92 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
 
   return (
     <div>
-      {/* Hard star tip */}
-      {hardStarTipVisible && (
-        <div
-          className="mb-4 rounded-xl overflow-hidden"
-          style={{
-            padding: "10px 16px",
-            background: "linear-gradient(135deg, #eef2ff, #e0e7ff)",
-            border: "1px solid #c7d2fe",
-            fontSize: "13px",
-            color: "#4338ca",
-            lineHeight: 1.5,
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            animation: "heroReveal 400ms cubic-bezier(0.16, 1, 0.3, 1) both",
-          }}
-        >
-          <span>⭐</span>
-          <span style={{ flex: 1 }}>Star tricky words — they&apos;ll get extra review priority</span>
-          <button
-            onClick={() => {
-              setHardStarTipVisible(false);
-              dismissTipForever("tip_hard_star");
-            }}
-            className="text-indigo-400 hover:text-indigo-600 transition-colors"
-            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "14px", padding: 0 }}
-          >
-            &#x2715;
-          </button>
-        </div>
-      )}
-
-      {/* Summary stats bar — excludes sentences (they have their own tab) */}
-      {vocabStats?.byType && (
-        <div className="flex items-center gap-4 mb-5" style={{ animation: "heroReveal 300ms ease-out both" }}>
-          <div className="flex items-center gap-5 text-sm">
-            <span className="font-bold text-gray-900">{vocabStats.byType.words + vocabStats.byType.phrases} <span className="font-normal text-gray-400">words</span></span>
-            <span className="text-gray-300">|</span>
-            <span className="font-semibold text-amber-500">{vocabStats.byType.wordsLearning} <span className="font-normal text-gray-400">learning</span></span>
-            <span className="text-gray-300">|</span>
-            <span className="font-semibold text-green-500">{vocabStats.byType.wordsKnown} <span className="font-normal text-gray-400">mastered</span></span>
-          </div>
-        </div>
-      )}
-
-      {/* Unified control bar: type filter + search + strength filter */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-3 mb-4 shadow-sm" style={{ animation: "heroReveal 300ms ease-out 80ms both" }}>
-        <div className="flex items-center gap-3">
-          {/* Type pills */}
-          {vocabStats?.byType && (
-            <div className="flex gap-0.5 bg-gray-100/80 rounded-xl p-1 shrink-0">
-              {([
-                { label: "All", value: "all" as const, count: vocabStats.byType.words + vocabStats.byType.phrases },
-                { label: "Words", value: "word" as const, count: vocabStats.byType.words },
-                { label: "Phrases", value: "phrase" as const, count: vocabStats.byType.phrases },
-              ] as const).map(({ label, value, count }) => (
-                count > 0 || value === "all" ? (
-                  <button
-                    key={value}
-                    onClick={() => setVocabTypeFilter(value)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
-                      vocabTypeFilter === value
-                        ? "bg-white text-gray-900 shadow-sm"
-                        : "text-gray-500 hover:text-gray-700"
-                    }`}
-                  >
-                    {label} {count > 0 && <span className="text-gray-400">({count})</span>}
-                  </button>
-                ) : null
-              ))}
+      {/* Stats tiles */}
+      {vocabStats && (
+        <div className="flex items-center gap-3 mb-5" style={{ animation: "heroReveal 300ms ease-out both" }}>
+          {[
+            {
+              value: vocabStats.total,
+              label: "Words",
+              color: "text-indigo-500",
+              iconBg: "bg-indigo-50",
+              iconColor: "#6366f1",
+              icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
+            },
+            {
+              value: vocabStats.wordsLearning,
+              label: "Learning",
+              color: "text-amber-500",
+              iconBg: "bg-amber-50",
+              iconColor: "#f59e0b",
+              icon: "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z",
+            },
+            {
+              value: vocabStats.wordsKnown,
+              label: "Mastered",
+              color: "text-emerald-500",
+              iconBg: "bg-emerald-50",
+              iconColor: "#10b981",
+              icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
+            },
+          ].map((stat, i) => (
+            <div
+              key={stat.label}
+              className="vocab-stat-mini"
+              style={{ animation: `heroReveal 300ms ease-out ${i * 60}ms both` }}
+            >
+              <div className={`w-7 h-7 rounded-lg ${stat.iconBg} flex items-center justify-center shrink-0`}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={stat.iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d={stat.icon} />
+                </svg>
+              </div>
+              <div>
+                <span className={`text-sm font-bold tabular-nums ${stat.color}`}>{stat.value}</span>
+                <span className="text-[11px] text-gray-400 font-medium ml-1">{stat.label}</span>
+              </div>
             </div>
-          )}
+          ))}
+        </div>
+      )}
 
-          {/* Search */}
+      {/* Search bar with animated gradient border */}
+      <div
+        className={`vocab-search-bar p-3 mb-4 ${searchFocused ? "focused" : ""}`}
+        style={{ animation: "heroReveal 300ms ease-out 80ms both" }}
+      >
+        <div className="flex items-center gap-3">
           <div className="flex-1 relative">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 transition-colors duration-200" style={searchFocused ? { color: "#6366f1" } : undefined} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
             <input
               type="text"
-              placeholder="Search..."
+              placeholder="Search words..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-8 py-1.5 bg-gray-50 border-none rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white transition-all"
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              className="w-full pl-9 pr-8 py-2 bg-transparent border-none rounded-lg text-sm focus:outline-none transition-all placeholder:text-gray-400"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full bg-gray-300 hover:bg-gray-400 text-white transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full bg-gray-200 hover:bg-gray-300 text-gray-500 transition-all cursor-pointer hover:scale-110"
               >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
               </button>
             )}
           </div>
 
-          {/* Strength filter */}
-          <div className="flex gap-0.5 bg-gray-100/80 rounded-xl p-1 shrink-0">
+          {/* Strength filter segment */}
+          <div className="vocab-segment shrink-0">
             <button
               onClick={() => setStrengthFilter("all")}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
-                strengthFilter === "all" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-              }`}
+              className={`vocab-segment-btn cursor-pointer ${strengthFilter === "all" ? "active" : ""}`}
             >
               All
             </button>
             <button
               onClick={() => setStrengthFilter("weak")}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
-                strengthFilter === "weak" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-              }`}
+              className={`vocab-segment-btn cursor-pointer ${strengthFilter === "weak" ? "active" : ""}`}
             >
               Weak
             </button>
@@ -965,30 +793,39 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
         </div>
       </div>
 
-      {/* Search + strength filter is now inside the unified control bar above */}
-
       {/* Sort & Batch Controls */}
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-            className="text-xs px-3 py-1.5 bg-white border border-gray-200 rounded-xl cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400 appearance-none pr-7"
-            style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239ca3af' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center" }}
-          >
-            <option value="recent">Most Recent</option>
-            <option value="strength">Weakest First</option>
-            <option value="alphabetical">A-Z</option>
-          </select>
+          {/* Sort chips */}
+          {[
+            { value: "recent" as const, label: "Recent", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
+            { value: "strength" as const, label: "Weakest", icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" },
+            { value: "alphabetical" as const, label: "A-Z", icon: "M3 4h13M3 8h9M3 12h5m0 0l4 8m0-8l-4 8" },
+          ].map((sort) => (
+            <button
+              key={sort.value}
+              onClick={() => setSortBy(sort.value)}
+              className={`vocab-control-chip flex items-center gap-1.5 ${sortBy === sort.value ? "active" : ""}`}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d={sort.icon} />
+              </svg>
+              {sort.label}
+            </button>
+          ))}
+
+          <div className="w-px h-5 bg-gray-200 mx-1" />
+
           <button
             onClick={() => {
               setBatchMode(!batchMode);
               if (batchMode) setSelectedWords(new Set());
             }}
-            className={`text-xs px-3 py-1.5 rounded-xl font-medium transition-all duration-200 ${
-              batchMode ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
+            className={`vocab-control-chip flex items-center gap-1.5 ${batchMode ? "active !border-indigo-200 !bg-indigo-50 !text-indigo-600" : ""}`}
           >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d={batchMode ? "M18 6 6 18M6 6l12 12" : "M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"} />
+            </svg>
             {batchMode ? "Cancel" : "Select"}
           </button>
         </div>
@@ -1002,40 +839,69 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
               setSelectedWords(new Set());
               setBatchMode(false);
             }}
-            className="text-xs px-3 py-1.5 bg-red-50 text-red-600 rounded-xl font-medium btn-spring hover:bg-red-100 border border-red-200"
+            className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-xl font-semibold text-red-600 bg-red-50 border border-red-200 cursor-pointer btn-spring hover:bg-red-100"
           >
-            Delete {selectedWords.size} word{selectedWords.size > 1 ? "s" : ""}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            Delete {selectedWords.size}
           </button>
         )}
       </div>
 
       {/* Search result count */}
       {debouncedSearch.length >= 2 && !isSearching && words && words.length > 0 && (
-        <p className="text-xs text-gray-500 mb-3" style={{ animation: "fadeInUp 150ms ease-out both" }}>
-          {words.length} result{words.length !== 1 ? "s" : ""} for &ldquo;{debouncedSearch}&rdquo;
+        <p className="text-xs text-gray-400 mb-3 flex items-center gap-1.5" style={{ animation: "fadeInUp 150ms ease-out both" }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <span><strong className="text-gray-600">{words.length}</strong> result{words.length !== 1 ? "s" : ""} for &ldquo;{debouncedSearch}&rdquo;</span>
         </p>
       )}
 
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-32 bg-white rounded-2xl border border-gray-100 skeleton-shimmer" />
+            <div
+              key={i}
+              className="h-36 rounded-[20px] skeleton-shimmer"
+              style={{ animationDelay: `${i * 80}ms`, border: "1px solid rgba(229,231,235,0.3)" }}
+            />
           ))}
         </div>
       ) : !words || words.length === 0 ? (
-        <EmptyState
-          icon={searchTerm ? "&#128269;" : "&#128218;"}
-          title={searchTerm ? "No results" : "No words saved yet"}
-          description={searchTerm
-            ? "No words match your search"
-            : "Select words on any page to get started!"}
-        />
+        <div className="vocab-empty-state relative">
+          {/* Background orbs */}
+          <div className="idle-bg-orbs" style={{ inset: "-20px" }}>
+            <div className="idle-orb idle-orb-1" />
+            <div className="idle-orb idle-orb-2" />
+          </div>
+          <div className="relative z-10">
+            <div
+              className="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center"
+              style={{
+                background: searchTerm ? "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(168,85,247,0.08))" : "linear-gradient(135deg, rgba(16,185,129,0.08), rgba(34,197,94,0.08))",
+                animation: "bounceScale 500ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
+              }}
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={searchTerm ? "#6366f1" : "#10b981"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                {searchTerm ? (
+                  <><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></>
+                ) : (
+                  <><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></>
+                )}
+              </svg>
+            </div>
+            <h2 className="text-lg font-bold text-gray-900 mb-1.5" style={{ animation: "fadeInUp 300ms ease-out 100ms both" }}>
+              {searchTerm ? "No results" : "No words saved yet"}
+            </h2>
+            <p className="text-sm text-gray-400 max-w-xs mx-auto" style={{ animation: "fadeInUp 300ms ease-out 180ms both" }}>
+              {searchTerm ? "No words match your search" : "Select words on any webpage to start building your vocabulary"}
+            </p>
+          </div>
+        </div>
       ) : (
         <>
           {/* Batch select all */}
           {batchMode && (
-            <div className="flex items-center gap-3 mb-3">
-              <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+            <div className="vocab-batch-bar mb-3">
+              <label className="flex items-center gap-2.5 text-xs text-indigo-600 font-medium cursor-pointer">
                 <input
                   type="checkbox"
                   checked={words.length > 0 && selectedWords.size === words.length}
@@ -1043,9 +909,9 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
                     if (e.target.checked) setSelectedWords(new Set(words.map((w) => w._id)));
                     else setSelectedWords(new Set());
                   }}
-                  className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-500"
+                  className="w-4 h-4 rounded-md border-indigo-300 text-indigo-500 cursor-pointer"
                 />
-                Select all
+                Select all ({words.length})
               </label>
             </div>
           )}
@@ -1056,16 +922,20 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
               const isPendingDelete = pendingDeletes.has(word._id);
               const score = computeStrength(word);
               const color = strengthColor(score);
+              const isNew = !word.fsrsReps || word.fsrsReps === 0;
               const isExpanded = expandedRows.has(word._id);
               const contexts = word.contexts ?? (word.example ? [{ sentence: word.example, url: word.sourceUrl, timestamp: word.addedAt }] : []);
               const circumference = 2 * Math.PI * 16;
-              const dash = circumference * (score / 100);
+              const dash = isNew ? 0 : circumference * (score / 100);
 
               if (isPendingDelete) {
                 return (
-                  <div key={word._id} className="bg-red-50 rounded-2xl border border-red-200 p-4 flex items-center justify-between">
-                    <span className="text-xs text-red-400 line-through">{word.word}</span>
-                    <button onClick={() => handleUndo(word._id)} className="text-xs font-semibold text-red-600 hover:text-red-700 btn-spring">Undo</button>
+                  <div key={word._id} className="vocab-undo-card">
+                    <div className="flex items-center gap-2">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
+                      <span className="text-xs text-red-400 line-through font-medium">{word.word}</span>
+                    </div>
+                    <button onClick={() => handleUndo(word._id)} className="text-xs font-bold text-red-600 hover:text-red-700 cursor-pointer transition-colors">Undo</button>
                   </div>
                 );
               }
@@ -1073,8 +943,14 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
               return (
                 <div
                   key={word._id}
-                  className={`group bg-white rounded-2xl border border-gray-200 p-4 card-hover relative overflow-hidden ${batchMode && selectedWords.has(word._id) ? "ring-2 ring-indigo-400" : ""}`}
-                  style={!hasAnimatedRef.current && i < 12 ? { animation: `statCountUp 350ms cubic-bezier(0.34, 1.56, 0.64, 1) ${Math.min(i * 40, 400)}ms both` } : searchTerm.length >= 2 ? { animation: "fadeInUp 150ms ease-out both" } : undefined}
+                  className={`group vocab-word-card ${batchMode && selectedWords.has(word._id) ? "selected" : ""}`}
+                  style={
+                    !hasAnimatedRef.current && i < 12
+                      ? { animation: `vocabCardSlideIn 400ms cubic-bezier(0.16, 1, 0.3, 1) ${Math.min(i * 50, 500)}ms both` }
+                      : searchTerm.length >= 2
+                        ? { animation: "fadeInUp 150ms ease-out both" }
+                        : undefined
+                  }
                   onClick={() => {
                     if (batchMode) {
                       setSelectedWords(prev => {
@@ -1088,79 +964,86 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
                   {/* Top row: word + strength ring */}
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <h3 className="text-base font-bold text-gray-900 truncate leading-tight">{word.word}</h3>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); speak(word.word); }}
-                          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
-                          title="Pronounce"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                          </svg>
-                        </button>
-                      </div>
+                      <h3 className="text-base font-bold text-gray-900 truncate leading-tight">{word.word}</h3>
                       <p className="text-sm text-gray-500 truncate mt-0.5">{word.translation}</p>
                     </div>
-                    {/* Mini strength ring */}
-                    <div className="relative w-10 h-10 shrink-0 ml-2">
+                    {/* Strength ring with hover glow */}
+                    <div className="relative w-10 h-10 shrink-0 ml-2 vocab-strength-ring" style={{ "--ring-color": isNew ? "rgba(148,163,184,0.2)" : color + "40" } as React.CSSProperties}>
                       <svg width="40" height="40" viewBox="0 0 40 40" className="transform -rotate-90">
-                        <circle cx="20" cy="20" r="16" fill="none" stroke="#f1f5f9" strokeWidth="3" />
+                        <circle cx="20" cy="20" r="16" fill="none" stroke="rgba(241,245,249,0.8)" strokeWidth="3" />
                         <circle
                           cx="20" cy="20" r="16" fill="none"
-                          stroke={color}
+                          stroke={isNew ? "#e2e8f0" : color}
                           strokeWidth="3"
                           strokeLinecap="round"
                           strokeDasharray={`${dash} ${circumference}`}
+                          style={{ transition: "stroke-dasharray 800ms cubic-bezier(0.34, 1.56, 0.64, 1)" }}
                         />
                       </svg>
-                      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold" style={{ color }}>
-                        {score}
+                      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold" style={{ color: isNew ? '#94a3b8' : color }}>
+                        {isNew ? "New" : score}
                       </span>
                     </div>
                   </div>
 
                   {/* Bottom row: status + actions */}
                   <div className="flex items-center justify-between mt-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
                       {statusBadge(word.status, word._id)}
-                      {(word as WordDoc).type === "phrase" && (
-                        <span className="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-teal-50 text-teal-600">phrase</span>
-                      )}
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      {/* Speak */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); speak(word.word); }}
+                        className="vocab-card-action speak"
+                        title="Pronounce"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                        </svg>
+                      </button>
                       {/* Expand contexts */}
                       {contexts.length > 0 && (
                         <button
                           onClick={(e) => { e.stopPropagation(); setExpandedRows(prev => { const n = new Set(prev); n.has(word._id) ? n.delete(word._id) : n.add(word._id); return n; }); }}
-                          className="p-1 rounded-lg text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 transition-colors"
+                          className="vocab-card-action context"
                           title="Show contexts"
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
                         </button>
                       )}
-                      {/* Star */}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleHard({ id: word._id, deviceId }); }}
-                        className="p-1 rounded-lg transition-all hover:scale-110 active:scale-90"
-                        style={{ color: word.isHard ? "#f59e0b" : "#d1d5db" }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill={word.isHard ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                      </button>
                       {/* Delete */}
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(word._id); }}
-                        className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        className="vocab-card-action delete"
+                        title="Delete"
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                       </button>
                     </div>
                   </div>
 
+                  {/* Batch checkbox */}
+                  {batchMode && (
+                    <div className="absolute top-3 right-3">
+                      <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all duration-200 ${
+                        selectedWords.has(word._id)
+                          ? "bg-indigo-500 border-indigo-500 shadow-sm shadow-indigo-200"
+                          : "border-gray-300 bg-white"
+                      }`}>
+                        {selectedWords.has(word._id) && (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Expanded contexts */}
                   {isExpanded && contexts.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-gray-100" style={{ animation: "fadeInUp 200ms ease-out both" }}>
+                    <div className="mt-3 pt-3 border-t border-gray-100/60" style={{ animation: "fadeInUp 200ms ease-out both" }}>
                       {contexts.map((ctx, ci) => (
                         <p key={ci} className="text-[11px] text-gray-500 italic leading-relaxed mb-1">
                           {highlightWord(ctx.sentence, word.word)}
@@ -1178,8 +1061,11 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
             <div className="text-center mt-6">
               <button
                 onClick={() => loadMore(50)}
-                className="px-6 py-3 text-xs font-semibold rounded-xl bg-white border border-gray-200 text-gray-600 btn-spring hover:border-indigo-200 hover:text-indigo-600"
+                className="vocab-load-more"
               >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
                 Load more words
               </button>
             </div>
@@ -1187,7 +1073,7 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
           {searchTerm.length < 2 && paginationStatus === "LoadingMore" && (
             <div className="text-center mt-6">
               <div className="inline-flex items-center gap-2 text-gray-400 text-sm">
-                <div className="w-4 h-4 border-2 border-indigo-300 border-t-transparent rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
                 Loading...
               </div>
             </div>
@@ -1195,302 +1081,6 @@ function VocabularyTab({ deviceId }: { deviceId: string }) {
         </>
       )}
 
-      {/* Saved Collocations Section */}
-      <SavedCollocations deviceId={deviceId} />
-    </div>
-  );
-}
-
-type CollocationDoc = Doc<"collocations">;
-
-function SavedCollocations({ deviceId }: { deviceId: string }) {
-  const collocations = useQuery(api.collocations.getAll, { deviceId });
-  const [expanded, setExpanded] = useState(false);
-
-  if (!collocations || collocations.length === 0) return null;
-
-  // Group by base word
-  const grouped = new Map<string, CollocationDoc[]>();
-  for (const col of collocations) {
-    for (const w of col.words) {
-      const key = w.toLowerCase();
-      if (!grouped.has(key)) grouped.set(key, []);
-      grouped.get(key)!.push(col);
-    }
-  }
-
-  return (
-    <div className="mt-6">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3"
-      >
-        <span style={{ transform: expanded ? "rotate(90deg)" : "rotate(0)", transition: "transform 150ms", display: "inline-block" }}>&#9654;</span>
-        Saved Collocations ({collocations.length})
-      </button>
-      {expanded && (
-        <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
-          {Array.from(grouped.entries()).slice(0, 20).map(([word, cols]) => (
-            <div key={word} className="px-4 py-3">
-              <span className="text-xs font-semibold text-gray-900">{word}</span>
-              <div className="flex flex-wrap gap-1.5 mt-1.5">
-                {cols.map((col) => (
-                  <span
-                    key={col._id}
-                    className="text-xs px-2 py-0.5 rounded-full border"
-                    style={{
-                      borderColor: col.mastered ? "#bbf7d0" : "#e5e7eb",
-                      background: col.mastered ? "#f0fdf4" : "#f9fafb",
-                      color: col.mastered ? "#16a34a" : "#6b7280",
-                    }}
-                  >
-                    {col.collocation}
-                    {col.mastered && " *"}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --- Hard Words Tab ---
-
-function HardWordsTab({ deviceId }: { deviceId: string }) {
-  const hardWords = useQuery(api.words.getHardWords, { deviceId });
-  const updateReview = useMutation(api.words.updateReview);
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
-  const [flashId, setFlashId] = useState<string | null>(null);
-  const [flashType, setFlashType] = useState<"got" | "forgot" | null>(null);
-
-  const handleQuickReview = async (wordId: string, remembered: boolean) => {
-    setReviewingId(wordId);
-    setFlashId(wordId);
-    setFlashType(remembered ? "got" : "forgot");
-    await updateReview({
-      id: wordId as Id<"words">,
-      deviceId,
-      remembered,
-    });
-    setTimeout(() => { setFlashId(null); setFlashType(null); }, 500);
-    setReviewingId(null);
-  };
-
-  if (hardWords === undefined) {
-    return (
-      <div className="space-y-3">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="hard-skeleton" style={{ animationDelay: `${i * 80}ms` }}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gray-200/50" />
-              <div className="flex-1">
-                <div className="h-4 w-28 bg-gray-200/50 rounded-md mb-1.5" />
-                <div className="h-3 w-20 bg-gray-200/30 rounded-md" />
-              </div>
-              <div className="h-6 w-16 bg-gray-200/40 rounded-full" />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  const filteredHardWords = hardWords.filter(w => ((w as any).type ?? "word") !== "sentence");
-
-  if (filteredHardWords.length === 0) {
-    return (
-      <div className="relative flex flex-col items-center justify-center py-20 overflow-hidden hard-empty-entrance">
-        {/* Background gradient orbs */}
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-10 left-1/3 w-44 h-44 rounded-full hard-orb-1" />
-          <div className="absolute bottom-10 right-1/3 w-36 h-36 rounded-full hard-orb-2" />
-        </div>
-
-        <div className="relative z-10 mb-5 hard-icon-pop">
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-amber-50 via-amber-100/80 to-orange-100/60 backdrop-blur-xl border border-amber-200/50 flex items-center justify-center shadow-lg shadow-amber-500/5">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" className="text-amber-500">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill="currentColor" opacity="0.2" stroke="currentColor" strokeWidth="1.5" />
-            </svg>
-          </div>
-          <div className="absolute inset-0 rounded-2xl border border-amber-300/30 hard-pulse-ring" />
-        </div>
-
-        <h3 className="relative z-10 text-xl font-semibold bg-gradient-to-r from-gray-900 via-amber-900 to-gray-900 bg-clip-text text-transparent mb-2">
-          No hard words!
-        </h3>
-        <p className="relative z-10 text-sm text-gray-500 max-w-xs mx-auto text-center leading-relaxed">
-          Words you struggle with will appear here for extra practice.
-        </p>
-      </div>
-    );
-  }
-
-  // Sort: very hard first, then by forgot count
-  const sortedWords = [...filteredHardWords].sort((a, b) => {
-    const da = a.difficulty ?? 1;
-    const db = b.difficulty ?? 1;
-    if (da !== db) return db - da;
-    return (b.forgotCount ?? 0) - (a.forgotCount ?? 0);
-  });
-
-  const veryHardCount = sortedWords.filter(w => (w.difficulty ?? 1) >= 2.5).length;
-
-  return (
-    <div>
-      {/* Summary bar */}
-      <div className="hard-summary-bar mb-4">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="hard-fire-icon">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2C8 7 4 10 4 14.5C4 18.64 7.58 22 12 22C16.42 22 20 18.64 20 14.5C20 10 16 7 12 2Z" fill="#f59e0b" stroke="#d97706" strokeWidth="1"/>
-                <path d="M12 22C14.21 22 16 20.21 16 18C16 15.79 14 14 12 11C10 14 8 15.79 8 18C8 20.21 9.79 22 12 22Z" fill="#fbbf24"/>
-              </svg>
-            </div>
-            <span className="text-sm font-semibold text-gray-800">{sortedWords.length} hard words</span>
-          </div>
-          {veryHardCount > 0 && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-50/80 border border-red-100/50">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-500 hard-dot-pulse" />
-              <span className="text-xs font-medium text-red-600">{veryHardCount} very hard</span>
-            </div>
-          )}
-        </div>
-        <button
-          onClick={() => {
-            sortedWords.forEach((w, i) => {
-              setTimeout(() => { speak(w.word); }, i * 1500);
-            });
-          }}
-          className="hard-listen-all-btn"
-          title="Listen to all hard words"
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-          </svg>
-          <span>Play all</span>
-        </button>
-      </div>
-
-      {/* Word cards */}
-      <div className="space-y-2.5">
-        {sortedWords.map((word, i) => {
-          const isVeryHard = (word.difficulty ?? 1) >= 2.5;
-          const forgotCount = word.forgotCount ?? 0;
-          const strength = computeStrength(word);
-          const sColor = strengthColor(strength);
-          const isFlashing = flashId === word._id;
-          const delay = Math.min(i * 50, 350);
-
-          return (
-            <div
-              key={word._id}
-              className={`hard-card ${isFlashing && flashType === "got" ? "hard-card-got" : ""} ${isFlashing && flashType === "forgot" ? "hard-card-forgot" : ""}`}
-              style={{ animationDelay: `${delay}ms` }}
-            >
-              {/* Difficulty accent */}
-              <div
-                className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full transition-all duration-300"
-                style={{
-                  background: isVeryHard
-                    ? "linear-gradient(to bottom, #ef4444, #f97316)"
-                    : "linear-gradient(to bottom, #f59e0b, #fbbf24)",
-                  boxShadow: isVeryHard ? "0 0 6px rgba(239,68,68,0.25)" : "0 0 6px rgba(245,158,11,0.2)",
-                }}
-              />
-
-              <div className="flex items-center gap-3.5 pl-3.5">
-                {/* Strength ring */}
-                <div className="relative flex-shrink-0" style={{ width: 38, height: 38 }}>
-                  <svg width="38" height="38" viewBox="0 0 38 38">
-                    <circle cx="19" cy="19" r="15" fill="none" stroke="#e5e7eb" strokeWidth="2.5" opacity="0.4" />
-                    <circle cx="19" cy="19" r="15" fill="none" stroke={sColor} strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeDasharray={2 * Math.PI * 15}
-                      strokeDashoffset={2 * Math.PI * 15 - (strength / 100) * 2 * Math.PI * 15}
-                      style={{ transform: "rotate(-90deg)", transformOrigin: "center", filter: `drop-shadow(0 0 3px ${sColor}40)`, transition: "stroke-dashoffset 800ms cubic-bezier(0.34,1.56,0.64,1)" }}
-                    />
-                  </svg>
-                  <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold" style={{ color: sColor }}>{strength}</span>
-                </div>
-
-                {/* Word & translation */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-sm font-semibold text-gray-900 truncate">{word.word}</span>
-                    <button
-                      onClick={() => { speak(word.word); }}
-                      className="hard-speak-btn"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                      </svg>
-                    </button>
-                  </div>
-                  <span className="text-xs text-gray-500 truncate block">{word.translation}</span>
-                </div>
-
-                {/* Forgot count + badge */}
-                <div className="flex items-center gap-2.5 flex-shrink-0">
-                  {forgotCount > 0 && (
-                    <div className="flex items-center gap-1 text-xs text-gray-400" title={`Forgotten ${forgotCount} times`}>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                        <path d="M12 8v4l3 3"/>
-                        <circle cx="12" cy="12" r="10"/>
-                      </svg>
-                      <span className="tabular-nums">{forgotCount}x</span>
-                    </div>
-                  )}
-
-                  <span className={`hard-badge ${isVeryHard ? "hard-badge-very" : "hard-badge-normal"}`}>
-                    {isVeryHard ? (
-                      <>
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8 7 4 10 4 14.5C4 18.64 7.58 22 12 22C16.42 22 20 18.64 20 14.5C20 10 16 7 12 2Z"/></svg>
-                        Very Hard
-                      </>
-                    ) : (
-                      <>
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                        Hard
-                      </>
-                    )}
-                  </span>
-                </div>
-
-                {/* Quick review buttons */}
-                <div className="flex gap-1.5 flex-shrink-0">
-                  <button
-                    onClick={() => handleQuickReview(word._id, false)}
-                    disabled={reviewingId === word._id}
-                    className="hard-review-btn hard-review-forgot"
-                    title="Mark as forgot"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                      <path d="M18 6L6 18M6 6l12 12"/>
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => handleQuickReview(word._id, true)}
-                    disabled={reviewingId === word._id}
-                    className="hard-review-btn hard-review-got"
-                    title="Mark as remembered"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -1502,7 +1092,6 @@ interface Achievement {
   name: string;
   description: string;
   icon: string;
-  xp: number;
   unlocked: boolean;
   unlockedAt?: number;
 }
@@ -1514,116 +1103,158 @@ function StatsTab({ deviceId }: { deviceId: string }) {
 
   if (!wordStats) {
     return (
-      <div className="space-y-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="h-4 w-28 bg-gray-200 rounded skeleton-shimmer mb-4" />
-          <div className="grid grid-cols-3 gap-4 text-center">
-            {[...Array(3)].map((_, i) => (
-              <div key={i}>
-                <div className="h-8 w-12 bg-gray-200 rounded skeleton-shimmer mx-auto mb-1" />
-                <div className="h-3 w-16 bg-gray-100 rounded skeleton-shimmer mx-auto" />
-              </div>
-            ))}
-          </div>
+      <div className="space-y-5">
+        <div className="grid grid-cols-3 gap-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-28 rounded-[18px] skeleton-shimmer" style={{ border: "1px solid rgba(229,231,235,0.3)" }} />
+          ))}
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="h-4 w-32 bg-gray-200 rounded skeleton-shimmer mb-4" />
-          <div className="h-32 bg-gray-100 rounded skeleton-shimmer" />
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="h-4 w-24 bg-gray-200 rounded skeleton-shimmer mb-4" />
-          <div className="space-y-3">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-12 bg-gray-100 rounded-lg skeleton-shimmer" />
-            ))}
-          </div>
-        </div>
+        <div className="h-48 rounded-[20px] skeleton-shimmer" style={{ border: "1px solid rgba(229,231,235,0.3)" }} />
+        <div className="h-40 rounded-[20px] skeleton-shimmer" style={{ border: "1px solid rgba(229,231,235,0.3)" }} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Lifetime Stats */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 card-hover" style={{ animation: "fadeInUp 300ms cubic-bezier(0.16, 1, 0.3, 1) both" }}>
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">Lifetime Stats</h3>
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div className="animate-stat-reveal stagger-1">
-            <p className="text-2xl font-bold text-blue-600">{wordStats.total}</p>
-            <p className="text-xs text-gray-500">Words Saved</p>
-          </div>
-          <div className="animate-stat-reveal stagger-2">
-            <p className="text-2xl font-bold text-green-600">{wordStats.known}</p>
-            <p className="text-xs text-gray-500">Mastered</p>
-          </div>
-          <div className="animate-stat-reveal stagger-3">
-            <p className="text-2xl font-bold text-amber-600">{wordStats.learning}</p>
-            <p className="text-xs text-gray-500">Learning</p>
-          </div>
-        </div>
-        {wordStats.byType && (
-          <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-gray-100">
-            <div className="text-center">
-              <p className="text-lg font-bold text-indigo-600">{wordStats.byType.words + wordStats.byType.phrases}</p>
-              <p className="text-xs text-gray-500">Words & Phrases</p>
+    <div className="space-y-5">
+      {/* Hero Stats Tiles */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          {
+            value: wordStats.total,
+            label: "Words Saved",
+            color: "blue",
+            textColor: "text-indigo-500",
+            iconBg: "bg-indigo-50",
+            iconColor: "#6366f1",
+            icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
+            delay: "0ms",
+          },
+          {
+            value: wordStats.known,
+            label: "Mastered",
+            color: "green",
+            textColor: "text-emerald-500",
+            iconBg: "bg-emerald-50",
+            iconColor: "#10b981",
+            icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
+            delay: "60ms",
+          },
+          {
+            value: wordStats.learning,
+            label: "Learning",
+            color: "amber",
+            textColor: "text-amber-500",
+            iconBg: "bg-amber-50",
+            iconColor: "#f59e0b",
+            icon: "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z",
+            delay: "120ms",
+          },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            className={`stats-hero-tile ${stat.color} stats-enter`}
+            style={{ animationDelay: stat.delay }}
+          >
+            <div className={`stats-icon ${stat.iconBg}`}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={stat.iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d={stat.icon} />
+              </svg>
             </div>
-            <div className="text-center">
-              <p className="text-lg font-bold text-cyan-600">{wordStats.byType.sentences}</p>
-              <p className="text-xs text-gray-500">Sentences</p>
-            </div>
+            <div className={`text-2xl font-bold tabular-nums ${stat.textColor}`}>{stat.value}</div>
+            <div className="text-[11px] text-gray-400 font-semibold tracking-wide">{stat.label}</div>
           </div>
-        )}
+        ))}
       </div>
 
       {/* Learning Insights */}
       {insights && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 card-hover" style={{ animation: "tabSwitch 400ms cubic-bezier(0.16, 1, 0.3, 1) 100ms both" }}>
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">Learning Insights</h3>
+        <div className="stats-section stats-enter" style={{ animationDelay: "100ms" }}>
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+              Learning Insights
+            </h3>
+          </div>
 
           {/* Weekly Activity Chart */}
-          <div className="mb-4">
-            <p className="text-xs text-gray-500 mb-2">Words added this week</p>
-            <div className="flex items-end gap-1 h-16">
-              {insights.weeklyActivity.map((day, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center">
-                  <div
-                    className="w-full bg-blue-500 rounded-t transition-all"
-                    style={{
-                      height: `${Math.max(4, (day.count / Math.max(...insights.weeklyActivity.map(d => d.count), 1)) * 48)}px`
-                    }}
-                  />
-                  <span className="text-[10px] text-gray-500 mt-1">{day.day}</span>
-                </div>
-              ))}
+          <div className="mb-5">
+            <p className="text-[11px] text-gray-400 font-medium mb-2 uppercase tracking-wide">This week</p>
+            <div className="flex items-end gap-2 h-20">
+              {insights.weeklyActivity.map((day, i) => {
+                const maxCount = Math.max(...insights.weeklyActivity.map(d => d.count), 1);
+                const height = Math.max(6, (day.count / maxCount) * 60);
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                    <span className="text-[10px] font-semibold text-gray-500 tabular-nums">{day.count > 0 ? day.count : ""}</span>
+                    <div
+                      className="stats-chart-bar w-full"
+                      style={{
+                        height: `${height}px`,
+                        background: day.count > 0
+                          ? `linear-gradient(180deg, #818cf8, #6366f1)`
+                          : "rgba(229,231,235,0.5)",
+                      }}
+                    />
+                    <span className="text-[10px] text-gray-400 font-medium">{day.day}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
           {/* Key Metrics */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            <div className="text-center p-2 bg-gray-50 rounded-lg">
-              <p className="text-lg font-bold text-gray-900">
-                {insights.velocity}
-                <span className="text-xs font-normal text-gray-500">/day</span>
-              </p>
-              <p className="text-xs text-gray-500">Learning pace</p>
-            </div>
-            <div className="text-center p-2 bg-gray-50 rounded-lg">
-              <p className="text-lg font-bold text-gray-900">{insights.retentionRate}%</p>
-              <p className="text-xs text-gray-500">Mastery rate</p>
-            </div>
-            <div className="text-center p-2 bg-gray-50 rounded-lg">
-              <p className="text-lg font-bold text-amber-600">{insights.dueForReview}</p>
-              <p className="text-xs text-gray-500">Due for review</p>
-            </div>
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            {[
+              {
+                value: `${insights.velocity}`,
+                suffix: "/day",
+                label: "Learning pace",
+                icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6",
+                iconColor: "#6366f1",
+              },
+              {
+                value: `${insights.retentionRate}%`,
+                suffix: "",
+                label: "Mastery rate",
+                icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
+                iconColor: "#10b981",
+              },
+              {
+                value: `${insights.dueForReview}`,
+                suffix: "",
+                label: "Due for review",
+                icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
+                iconColor: "#f59e0b",
+              },
+            ].map((metric, i) => (
+              <div key={metric.label} className="stats-metric-card" style={{ animation: `statReveal 350ms cubic-bezier(0.34, 1.56, 0.64, 1) ${200 + i * 60}ms both` }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={metric.iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-1.5">
+                  <path d={metric.icon} />
+                </svg>
+                <p className="text-lg font-bold text-gray-900 tabular-nums">
+                  {metric.value}
+                  {metric.suffix && <span className="text-xs font-normal text-gray-400">{metric.suffix}</span>}
+                </p>
+                <p className="text-[11px] text-gray-400 font-medium">{metric.label}</p>
+              </div>
+            ))}
           </div>
 
           {/* Hardest Words */}
           {insights.hardestWords.length > 0 && (
-            <div className="mb-3">
-              <p className="text-xs font-medium text-gray-700 mb-2">Challenging words</p>
-              <div className="flex flex-wrap gap-1">
+            <div className="mb-5">
+              <p className="text-[11px] text-gray-400 font-medium mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                Challenging words
+              </p>
+              <div className="flex flex-wrap gap-1.5">
                 {insights.hardestWords.map((w, i) => (
-                  <span key={i} className="px-2 py-1 bg-red-50 text-red-700 text-xs rounded-full">
+                  <span key={i} className="stats-hard-pill">
                     {w.word}
                   </span>
                 ))}
@@ -1631,30 +1262,48 @@ function StatsTab({ deviceId }: { deviceId: string }) {
             </div>
           )}
 
-          {/* Status Breakdown */}
+          {/* Progress Breakdown */}
           <div>
-            <p className="text-xs font-medium text-gray-700 mb-2">Progress breakdown</p>
-            <div className="h-3 bg-gray-200 rounded-full overflow-hidden flex">
-              <div
-                className="bg-green-500 transition-all"
-                style={{ width: `${(insights.statusBreakdown.known / insights.totalWords) * 100}%` }}
-                title={`Known: ${insights.statusBreakdown.known}`}
-              />
-              <div
-                className="bg-blue-500 transition-all"
-                style={{ width: `${(insights.statusBreakdown.learning / insights.totalWords) * 100}%` }}
-                title={`Learning: ${insights.statusBreakdown.learning}`}
-              />
-              <div
-                className="bg-gray-400 transition-all"
-                style={{ width: `${(insights.statusBreakdown.new / insights.totalWords) * 100}%` }}
-                title={`New: ${insights.statusBreakdown.new}`}
-              />
+            <p className="text-[11px] text-gray-400 font-medium mb-2.5 uppercase tracking-wide">Progress breakdown</p>
+            <div className="stats-progress-bar">
+              {insights.totalWords > 0 && (
+                <>
+                  <div
+                    className="stats-progress-segment"
+                    style={{
+                      width: `${(insights.statusBreakdown.known / insights.totalWords) * 100}%`,
+                      background: "linear-gradient(90deg, #10b981, #34d399)",
+                    }}
+                  />
+                  <div
+                    className="stats-progress-segment"
+                    style={{
+                      width: `${(insights.statusBreakdown.learning / insights.totalWords) * 100}%`,
+                      background: "linear-gradient(90deg, #6366f1, #818cf8)",
+                    }}
+                  />
+                  <div
+                    className="stats-progress-segment"
+                    style={{
+                      width: `${(insights.statusBreakdown.new / insights.totalWords) * 100}%`,
+                      background: "rgba(209,213,219,0.6)",
+                    }}
+                  />
+                </>
+              )}
             </div>
-            <div className="flex justify-between text-[10px] text-gray-500 mt-1">
-              <span>Known ({insights.statusBreakdown.known})</span>
-              <span>Learning ({insights.statusBreakdown.learning})</span>
-              <span>New ({insights.statusBreakdown.new})</span>
+            <div className="flex justify-between mt-2">
+              {[
+                { label: "Mastered", count: insights.statusBreakdown.known, color: "#10b981" },
+                { label: "Learning", count: insights.statusBreakdown.learning, color: "#6366f1" },
+                { label: "New", count: insights.statusBreakdown.new, color: "#9ca3af" },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
+                  <span className="text-[11px] text-gray-500 font-medium">{item.label}</span>
+                  <span className="text-[11px] text-gray-400 tabular-nums">({item.count})</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -1662,31 +1311,37 @@ function StatsTab({ deviceId }: { deviceId: string }) {
 
       {/* Achievements */}
       {achievements && achievements.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 card-hover" style={{ animation: "tabSwitch 400ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both" }}>
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">
-            Achievements ({achievements.filter((a: Achievement) => a.unlocked).length}/{achievements.length})
-          </h3>
+        <div className="stats-section stats-enter" style={{ animationDelay: "200ms" }}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
+              </svg>
+              Achievements
+            </h3>
+            <span className="text-xs font-semibold text-amber-500 bg-amber-50 px-2.5 py-1 rounded-lg tabular-nums">
+              {achievements.filter((a: Achievement) => a.unlocked).length}/{achievements.length}
+            </span>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {achievements.map((a: Achievement, i: number) => (
               <div
                 key={a.id}
-                className={`p-3 rounded-xl border card-hover ${
-                  a.unlocked
-                    ? "bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200"
-                    : "bg-gray-50 border-gray-200 opacity-50"
-                }`}
-                style={{ animation: `statReveal 350ms cubic-bezier(0.34, 1.56, 0.64, 1) ${250 + i * 60}ms both` }}
+                className={`stats-achievement ${a.unlocked ? "unlocked" : "locked"}`}
+                style={{ animation: `vocabCardSlideIn 400ms cubic-bezier(0.16, 1, 0.3, 1) ${250 + i * 50}ms both` }}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-xl ${a.unlocked ? "" : "grayscale"}`}>{a.icon}</span>
-                  <span className={`text-xs font-medium ${a.unlocked ? "text-amber-600" : "text-gray-400"}`}>
-                    +{a.xp} XP
-                  </span>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className={`text-lg ${a.unlocked ? "" : "grayscale opacity-50"}`}>{a.icon}</span>
+                  {a.unlocked && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  )}
                 </div>
-                <p className={`text-sm font-semibold ${a.unlocked ? "text-gray-900" : "text-gray-400"}`}>
+                <p className={`text-sm font-semibold leading-tight ${a.unlocked ? "text-gray-900" : "text-gray-400"}`}>
                   {a.name}
                 </p>
-                <p className="text-xs text-gray-500">{a.description}</p>
+                <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{a.description}</p>
               </div>
             ))}
           </div>

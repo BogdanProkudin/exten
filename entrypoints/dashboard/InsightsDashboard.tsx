@@ -424,8 +424,11 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
     <div className="space-y-6">
               {/* CEFR Progress Estimate */}
               {cefrInfo && (
-                <section className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl border border-indigo-100 p-5">
-                  <h2 className="text-sm font-semibold text-gray-700 mb-3">CEFR Progress Estimate</h2>
+                <section className="stats-section stats-enter" style={{ animationDelay: "0ms", background: "linear-gradient(135deg, rgba(238,242,255,0.9), rgba(224,231,255,0.7))", borderColor: "rgba(165,180,252,0.3)" }}>
+                  <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                    CEFR Progress Estimate
+                  </h2>
                   <div className="flex items-center gap-6">
                     <div className="text-center">
                       <p className="text-4xl font-bold text-indigo-600">{cefrInfo.level}</p>
@@ -451,10 +454,8 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
                     {["A1", "A2", "B1", "B2", "C1", "C2"].map((lvl) => (
                       <div
                         key={lvl}
-                        className={`flex-1 text-center py-1 rounded text-xs font-medium transition-all ${
-                          lvl === cefrInfo.level
-                            ? "bg-indigo-600 text-white"
-                            : "bg-white text-gray-400 border border-gray-200"
+                        className={`stats-cefr-badge flex-1 text-center py-1 text-xs font-medium ${
+                          lvl === cefrInfo.level ? "active" : "inactive"
                         }`}
                       >
                         {lvl}
@@ -465,8 +466,11 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
               )}
 
               {/* Activity Heatmap */}
-              <section className="bg-white rounded-xl border border-gray-200 p-5">
-                <h2 className="text-sm font-semibold text-gray-900 mb-4">Activity Heatmap</h2>
+              <section className="stats-section stats-enter" style={{ animationDelay: "80ms" }}>
+                <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" /><path strokeLinecap="round" strokeLinejoin="round" d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" /></svg>
+                  Activity Heatmap
+                </h2>
                 <p className="text-xs text-gray-500 mb-3">Last 90 days</p>
                 <div className="relative overflow-x-auto">
                   {/* Month labels */}
@@ -495,7 +499,7 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
                         {week.map((day, di) => (
                           <div
                             key={di}
-                            className="w-[12px] h-[12px] rounded-sm transition-all cursor-default"
+                            className="stats-heatmap-cell"
                             style={{ backgroundColor: day.count < 0 ? "transparent" : heatmapColor(day.count) }}
                             onMouseEnter={(e) => {
                               if (day.date) {
@@ -530,8 +534,11 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
               </section>
 
               {/* Words Per Week - Bar Chart */}
-              <section className="bg-white rounded-xl border border-gray-200 p-5">
-                <h2 className="text-sm font-semibold text-gray-900 mb-4">Words Per Week</h2>
+              <section className="stats-section stats-enter" style={{ animationDelay: "160ms" }}>
+                <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  Words Per Week
+                </h2>
                 {wordsPerWeek.length === 0 ? (
                   <p className="text-sm text-gray-400 text-center py-8">No data yet</p>
                 ) : (
@@ -540,8 +547,8 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
                       <div key={i} className="flex-1 flex flex-col items-center">
                         <span className="text-xs font-medium text-gray-700 mb-1">{week.count}</span>
                         <div
-                          className="w-full rounded-t-md bg-gradient-to-t from-blue-500 to-blue-400 transition-all duration-500"
-                          style={{ height: `${Math.max(4, (week.count / maxBarCount) * 120)}px` }}
+                          className="stats-chart-bar w-full"
+                          style={{ height: `${Math.max(4, (week.count / maxBarCount) * 120)}px`, background: "linear-gradient(180deg, #818cf8, #6366f1)" }}
                         />
                         <span className="text-[10px] text-gray-400 mt-2 text-center leading-tight">{week.label}</span>
                       </div>
@@ -551,8 +558,11 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
               </section>
 
               {/* Review Accuracy Trend */}
-              <section className="bg-white rounded-xl border border-gray-200 p-5">
-                <h2 className="text-sm font-semibold text-gray-900 mb-4">Review Accuracy Trend</h2>
+              <section className="stats-section stats-enter" style={{ animationDelay: "240ms" }}>
+                <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                  Review Accuracy Trend
+                </h2>
                 <p className="text-xs text-gray-500 mb-3">Last 30 days</p>
                 {accuracyData && <LineChart data={accuracyData} />}
               </section>
@@ -561,8 +571,11 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
               {readingInsights && readingInsights.totalSessions > 0 && (
                 <>
                   {/* Reading Progress Overview */}
-                  <section className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100 p-5">
-                    <h2 className="text-sm font-semibold text-gray-700 mb-4">📚 Reading Progress</h2>
+                  <section className="stats-section stats-enter" style={{ animationDelay: "320ms", background: "linear-gradient(135deg, rgba(220,252,231,0.8), rgba(187,247,208,0.6))", borderColor: "rgba(110,231,183,0.3)" }}>
+                    <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                      <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                      Reading Progress
+                    </h2>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="text-center">
                         <p className="text-2xl font-bold text-green-600">{readingInsights.totalSessions}</p>
@@ -584,7 +597,10 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
                     
                     {readingInsights.bestWpmSession && (
                       <div className="mt-4 p-3 bg-green-100 rounded-lg">
-                        <p className="text-xs font-medium text-green-800 mb-1">🏆 Personal Best</p>
+                        <p className="text-xs font-medium text-green-800 mb-1 flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
+                          Personal Best
+                        </p>
                         <p className="text-sm text-green-700">
                           {readingInsights.bestWpmSession.wpm} WPM on {readingInsights.bestWpmSession.contentType} 
                           ({readingInsights.bestWpmSession.date})
@@ -594,25 +610,38 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
                   </section>
 
                   {/* Reading Speed Trend */}
-                  <section className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h2 className="text-sm font-semibold text-gray-900 mb-4">Reading Speed & Comprehension Trend</h2>
+                  <section className="stats-section stats-enter" style={{ animationDelay: "400ms" }}>
+                    <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                      Reading Speed & Comprehension Trend
+                    </h2>
                     <p className="text-xs text-gray-500 mb-3">Last 30 days</p>
                     {readingSpeedTrend && <ReadingSpeedChart data={readingSpeedTrend} />}
                   </section>
 
                   {/* Reading Stats by Content Type */}
-                  <section className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h2 className="text-sm font-semibold text-gray-900 mb-4">Performance by Content Type</h2>
+                  <section className="stats-section stats-enter" style={{ animationDelay: "480ms" }}>
+                    <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                      Performance by Content Type
+                    </h2>
                     {readingStatsByType && readingStatsByType.length > 0 ? (
                       <div className="space-y-3">
                         {readingStatsByType.map((stat, i) => (
                           <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <div className="flex items-center gap-3">
-                              <span className="text-lg">
-                                {stat.contentType === 'youtube' ? '🎥' : 
-                                 stat.contentType === 'social' ? '💬' : 
-                                 stat.contentType === 'news' ? '📰' : 
-                                 stat.contentType === 'reference' ? '📚' : '📄'}
+                              <span className="w-5 h-5 flex items-center justify-center text-gray-600">
+                                {stat.contentType === 'youtube' ? (
+                                  <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                ) : stat.contentType === 'social' ? (
+                                  <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                                ) : stat.contentType === 'news' ? (
+                                  <svg className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" /></svg>
+                                ) : stat.contentType === 'reference' ? (
+                                  <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                                ) : (
+                                  <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                )}
                               </span>
                               <div>
                                 <p className="text-sm font-medium text-gray-900 capitalize">{stat.contentType}</p>
@@ -636,8 +665,11 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
               {/* Two-column: Donut + Top Words */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Word Strength Distribution - Donut */}
-                <section className="bg-white rounded-xl border border-gray-200 p-5">
-                  <h2 className="text-sm font-semibold text-gray-900 mb-4">Word Strength Distribution</h2>
+                <section className="stats-section stats-enter" style={{ animationDelay: "560ms" }}>
+                  <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>
+                    Word Strength Distribution
+                  </h2>
                   {strengthDist && (
                     <div className="flex flex-col items-center">
                       <DonutChart
@@ -665,9 +697,12 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
                 </section>
 
                 {/* Streak Calendar */}
-                <section className="bg-white rounded-xl border border-gray-200 p-5">
+                <section className="stats-section stats-enter" style={{ animationDelay: "640ms" }}>
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-sm font-semibold text-gray-900">Streak Calendar</h2>
+                    <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                      <svg className="w-4 h-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" /></svg>
+                      Streak Calendar
+                    </h2>
                     <div className="flex items-center gap-2">
                       <span className="text-2xl font-bold text-blue-600">{currentStreak}</span>
                       <span className="text-xs text-gray-500">day streak</span>
@@ -678,7 +713,7 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
                       {streakHistory.map((day, i) => (
                         <div
                           key={i}
-                          className="w-[10px] h-[10px] rounded-sm transition-all"
+                          className="stats-streak-dot"
                           style={{ backgroundColor: streakColor(day.active) }}
                           title={`${formatDate(day.date)}: ${day.active ? "Active" : "Inactive"}`}
                         />
@@ -701,10 +736,13 @@ export function InsightsDashboard({ deviceId, onClose }: InsightsDashboardProps)
               </div>
 
               {/* RPG Promotion */}
-              <section className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-xl border border-purple-100 p-5">
+              <section className="stats-section stats-enter" style={{ animationDelay: "720ms", background: "linear-gradient(135deg, rgba(243,232,255,0.9), rgba(224,231,255,0.7))", borderColor: "rgba(196,181,253,0.3)" }}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold text-purple-900 mb-2">🎮 Level Up Your Learning!</h2>
+                    <h2 className="text-lg font-semibold text-purple-900 mb-2 flex items-center gap-2">
+                      <svg className="w-5 h-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      Level Up Your Learning!
+                    </h2>
                     <p className="text-purple-700 text-sm mb-3">
                       Check out your RPG dashboard for achievements, skill trees, daily challenges, and language pattern insights!
                     </p>
@@ -737,8 +775,11 @@ function WordList({
   colorTo: string;
 }) {
   return (
-    <section className="bg-white rounded-xl border border-gray-200 p-5">
-      <h2 className="text-sm font-semibold text-gray-900 mb-4">{title}</h2>
+    <section className="stats-section stats-enter">
+      <h2 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+        <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+        {title}
+      </h2>
       {words.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-6">No words yet</p>
       ) : (
@@ -752,9 +793,9 @@ function WordList({
                   <span className="text-xs text-gray-500 ml-2 shrink-0">{w.strength}%</span>
                 </div>
                 <p className="text-xs text-gray-400 truncate">{w.translation}</p>
-                <div className="h-1.5 bg-gray-100 rounded-full mt-1 overflow-hidden">
+                <div className="stats-word-bar">
                   <div
-                    className="h-full rounded-full transition-all duration-500"
+                    className="stats-word-bar-fill"
                     style={{
                       width: `${w.strength}%`,
                       background: `linear-gradient(to right, ${colorFrom}, ${colorTo})`,

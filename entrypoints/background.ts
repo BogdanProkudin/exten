@@ -7,7 +7,6 @@ import type { Id } from "../convex/_generated/dataModel";
 import { getDefaultState, type SchedulerState } from "../src/lib/smart-scheduler";
 import { populateFromAsset } from "../src/lib/local-dictionary";
 
-const REVIEW_ALARM = "vocabify-review";
 const RADAR_DECAY_ALARM = "vocabify-radar-decay";
 const SCHEDULER_STATE_KEY = "vocabifySchedulerState";
 const TIMER_STATE_KEY = "vocabifyTimerState";
@@ -27,7 +26,6 @@ async function scheduleNextReview() {
   const nextReviewAt = Date.now() + intervalMs;
   await chrome.storage.session.set({ [TIMER_STATE_KEY]: { nextReviewAt } });
   chrome.alarms.create(REVIEW_TIMER_ALARM, { when: nextReviewAt });
-  console.log("[Vocabify Timer] Scheduled next review at", new Date(nextReviewAt).toLocaleTimeString(), `(${intervalMs / 1000}s from now)`);
 }
 
 // --- Type-safe message types ---
@@ -40,7 +38,6 @@ type SaveMessage = {
   sourceUrl?: string;
   exampleContext?: string[];
   exampleSource?: string;
-  wordType?: "word" | "phrase" | "sentence";
 };
 type ReviewResultMessage = {
   type: "REVIEW_RESULT";
@@ -61,7 +58,6 @@ type AiExplainMessage = {
 type AiSimplifyMessage = { type: "AI_SIMPLIFY"; text: string; userLevel?: string };
 type CheckProMessage = { type: "CHECK_PRO" };
 type GetWordByLemmaMessage = { type: "GET_WORD_BY_LEMMA"; lemma: string; word?: string };
-type ToggleHardMessage = { type: "TOGGLE_HARD"; wordId: string };
 type AddContextMessage = { type: "ADD_CONTEXT"; wordId: string; sentence: string; url: string };
 type DeleteWordMessage = { type: "DELETE_WORD"; wordId: string };
 type AiAnalyzeSentenceMessage = {
@@ -73,21 +69,13 @@ type AiAnalyzeSentenceMessage = {
 type UpdateActivityMessage = { type: "UPDATE_ACTIVITY" };
 type VideoStateMessage = { type: "VIDEO_STATE"; playing: boolean };
 type TypingStateMessage = { type: "TYPING_STATE"; typing: boolean };
-type GetCollocationsMessage = { type: "GET_COLLOCATIONS"; word: string };
-type SaveCollocationMessage = {
-  type: "SAVE_COLLOCATION";
-  collocation: string;
-  words: string[];
-  category: string;
-  level?: string;
-  sourceContext?: string;
-};
-type DiscoverCollocationsMessage = { type: "DISCOVER_COLLOCATIONS"; word: string };
 type DictLookupMessage = { type: "DICT_LOOKUP"; word: string };
 type GetTimerStateMessage = { type: "GET_TIMER_STATE" };
 type ScheduleNextReviewMessage = { type: "SCHEDULE_NEXT_REVIEW" };
 type OpenDashboardMessage = { type: "OPEN_DASHBOARD"; hash?: string };
 type UpdateAlarmMessage = { type: "UPDATE_ALARM"; intervalMinutes: number };
+type SpeakWordMessage = { type: "SPEAK_WORD"; word: string };
+type StopSpeakingMessage = { type: "STOP_SPEAKING" };
 
 type AppMessage =
   | TranslateMessage
@@ -100,22 +88,20 @@ type AppMessage =
   | AiSimplifyMessage
   | CheckProMessage
   | GetWordByLemmaMessage
-  | ToggleHardMessage
   | AddContextMessage
   | DeleteWordMessage
   | AiAnalyzeSentenceMessage
   | UpdateActivityMessage
   | VideoStateMessage
   | TypingStateMessage
-  | GetCollocationsMessage
-  | SaveCollocationMessage
-  | DiscoverCollocationsMessage
   | DictLookupMessage
   | GetTimerStateMessage
   | ScheduleNextReviewMessage
   | OpenDashboardMessage
   | UpdateAlarmMessage
   | { type: "GET_DISTRACTORS"; wordId: string; count?: number }
+  | SpeakWordMessage
+  | StopSpeakingMessage
 ;
 
 function isValidMessage(msg: unknown): msg is AppMessage {
@@ -142,8 +128,6 @@ function isValidMessage(msg: unknown): msg is AppMessage {
       return true;
     case "GET_WORD_BY_LEMMA":
       return typeof m.lemma === "string";
-    case "TOGGLE_HARD":
-      return typeof m.wordId === "string";
     case "ADD_CONTEXT":
       return typeof m.wordId === "string" && typeof m.sentence === "string" && typeof m.url === "string";
     case "DELETE_WORD":
@@ -156,12 +140,6 @@ function isValidMessage(msg: unknown): msg is AppMessage {
       return typeof m.playing === "boolean";
     case "TYPING_STATE":
       return typeof m.typing === "boolean";
-    case "GET_COLLOCATIONS":
-      return typeof m.word === "string";
-    case "SAVE_COLLOCATION":
-      return typeof m.collocation === "string" && Array.isArray(m.words);
-    case "DISCOVER_COLLOCATIONS":
-      return typeof m.word === "string";
     case "DICT_LOOKUP":
       return typeof m.word === "string";
     case "GET_TIMER_STATE":
@@ -174,6 +152,10 @@ function isValidMessage(msg: unknown): msg is AppMessage {
       return typeof m.intervalMinutes === "number";
     case "GET_DISTRACTORS":
       return typeof m.wordId === "string";
+    case "SPEAK_WORD":
+      return typeof m.word === "string";
+    case "STOP_SPEAKING":
+      return true;
     default:
       return false;
   }
@@ -217,12 +199,10 @@ export default defineBackground(() => {
   let recentlyShownIds: string[] = [];
 
   async function handleReviewAlarm() {
-    console.log("[Vocabify Timer] Alarm fired, checking for due words...");
     try {
       // Check Do Not Disturb
       const dndData = await chrome.storage.sync.get("dndUntil") as Record<string, number | undefined>;
       if (dndData.dndUntil && Date.now() < dndData.dndUntil) {
-        console.log("[Vocabify Timer] DND active, skipping review");
         await scheduleNextReview();
         return;
       }
@@ -234,7 +214,6 @@ export default defineBackground(() => {
       const todayStr = new Date().toISOString().slice(0, 10);
       const toastsToday = (limitData.lastToastResetDate === todayStr ? (limitData.toastsShownToday as number) ?? 0 : 0);
       if (toastsToday >= maxToasts) {
-        console.log("[Vocabify Timer] Daily toast limit reached, skipping");
         await scheduleNextReview();
         return;
       }
@@ -247,30 +226,25 @@ export default defineBackground(() => {
       });
 
       if (words.length === 0) {
-        console.log("[Vocabify Timer] No words at all, skipping");
         await scheduleNextReview();
         return;
       }
 
       // Pick the top word (highest score)
       const picked = words[0];
-      console.log("[Vocabify Timer] Scores:", words.map((w: { word: string; _score: number }) => `${w.word}=${w._score.toFixed(1)}`).join(", "));
 
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       const tab = tabs[0];
       if (!tab?.id) {
-        console.log("[Vocabify Timer] No active tab found");
         await scheduleNextReview();
         return;
       }
 
       if (tab.url && (tab.url.startsWith("chrome://") || tab.url.startsWith("chrome-extension://"))) {
-        console.log("[Vocabify Timer] Active tab is restricted, rescheduling");
         await scheduleNextReview();
         return;
       }
 
-      console.log("[Vocabify Timer] Showing word:", picked.word, "(score:", picked._score.toFixed(1), ")");
       await chrome.tabs.sendMessage(tab.id, { type: "SHOW_REVIEW", word: picked });
 
       // Track recently shown to avoid repetition
@@ -298,8 +272,6 @@ export default defineBackground(() => {
   chrome.runtime.onInstalled.addListener(async () => {
     await getDeviceId();
 
-    // Smart scheduler: 2-min heartbeat instead of fixed interval
-    chrome.alarms.create(REVIEW_ALARM, { periodInMinutes: 2 });
     chrome.alarms.create(RADAR_DECAY_ALARM, { periodInMinutes: 60 * 24 });
 
     // Initialize idle detection (60s threshold)
@@ -364,7 +336,6 @@ export default defineBackground(() => {
       }
 
       await putInStore("settings", "migrationComplete", true);
-      console.log("[Vocabify] Storage migration to IndexedDB complete");
     } catch (e) {
       console.error("[Vocabify] Migration error:", e);
     }
@@ -480,10 +451,6 @@ export default defineBackground(() => {
       return;
     }
 
-    if (alarm.name === REVIEW_ALARM) {
-      // Legacy heartbeat — no longer needed, timer alarm handles reviews
-      return;
-    }
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -520,6 +487,21 @@ async function openDashboard(hash?: string) {
   await chrome.tabs.create({ url });
 }
 
+let offscreenCreating: Promise<void> | null = null;
+
+async function ensureOffscreen() {
+  const existing = await chrome.offscreen.hasDocument?.().catch(() => false);
+  if (existing) return;
+  if (offscreenCreating) { await offscreenCreating; return; }
+  offscreenCreating = chrome.offscreen.createDocument({
+    url: "offscreen.html",
+    reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
+    justification: "TTS audio playback for word pronunciation",
+  });
+  await offscreenCreating;
+  offscreenCreating = null;
+}
+
 async function handleMessage(message: AppMessage, convex: ConvexHttpClient, updateBadge: () => Promise<void>) {
   const deviceId = await getDeviceId();
 
@@ -544,14 +526,12 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
           sourceUrl: message.sourceUrl || "",
           exampleContext: message.exampleContext,
           exampleSource: message.exampleSource,
-          type: message.wordType,
         });
         logEvent(convex, deviceId, "word_saved", message.word);
         updateBadge();
         // Schedule a review if no timer is active
         const timerData = await chrome.storage.session.get(TIMER_STATE_KEY) as Record<string, { nextReviewAt: number } | undefined>;
         if (!timerData[TIMER_STATE_KEY] || timerData[TIMER_STATE_KEY]!.nextReviewAt < Date.now()) {
-          console.log("[Vocabify Timer] Word saved, scheduling review");
           await scheduleNextReview();
         }
         // Check for newly unlocked achievements
@@ -584,10 +564,6 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
           deviceId,
           wasRemembered ? "review_remembered" : "review_forgot",
         );
-        console.log("[Vocabify Timer] Review result received");
-        // Award XP for completing a review
-        const reviewXp = wasRemembered ? 15 : 10;
-        await convex.mutation(api.gamification.addReviewXP, { deviceId, xp: reviewXp });
         // Check for newly unlocked achievements
         const { newAchievements } = await convex.mutation(
           api.gamification.checkAchievements,
@@ -627,14 +603,12 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
     }
 
     case "SCHEDULE_NEXT_REVIEW": {
-      console.log("[Vocabify Timer] Review popup closed, scheduling next review");
       await scheduleNextReview();
       return { success: true };
     }
 
     case "UPDATE_ALARM": {
       const mins = (message as UpdateAlarmMessage).intervalMinutes;
-      console.log(`[Vocabify Timer] Review interval updated to ${mins} minutes`);
       await chrome.storage.sync.set({ reviewIntervalMinutes: mins });
       await scheduleNextReview();
       return { success: true };
@@ -643,7 +617,6 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
     case "GET_TIMER_STATE": {
       const data = await chrome.storage.session.get(TIMER_STATE_KEY) as Record<string, { nextReviewAt: number } | undefined>;
       const timer = data[TIMER_STATE_KEY];
-      console.log("[Vocabify Timer] GET_TIMER_STATE →", timer);
       if (!timer) return { nextReviewAt: null };
       return { nextReviewAt: timer.nextReviewAt };
     }
@@ -733,18 +706,6 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
       }
     }
 
-    case "TOGGLE_HARD": {
-      try {
-        await convex.mutation(api.words.toggleHard, {
-          id: message.wordId as Id<"words">,
-          deviceId,
-        });
-        return { success: true };
-      } catch (e) {
-        return { success: false, error: String(e) };
-      }
-    }
-
     case "ADD_CONTEXT": {
       try {
         const result = await convex.mutation(api.words.addContext, {
@@ -827,42 +788,6 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
       }
     }
 
-    case "GET_COLLOCATIONS": {
-      try {
-        const { getCollocationsForWord } = await import("../src/lib/collocation-engine");
-        const collocations = await getCollocationsForWord(message.word);
-        return { success: true, collocations };
-      } catch (e) {
-        return { success: false, error: String(e) };
-      }
-    }
-
-    case "SAVE_COLLOCATION": {
-      try {
-        await convex.mutation((api as any).collocations.save, {
-          deviceId,
-          collocation: message.collocation,
-          words: message.words,
-          category: message.category,
-          level: message.level,
-          sourceContext: message.sourceContext,
-        });
-        return { success: true };
-      } catch (e) {
-        return { success: false, error: String(e) };
-      }
-    }
-
-    case "DISCOVER_COLLOCATIONS": {
-      try {
-        const { discoverCollocations } = await import("../src/lib/collocation-engine");
-        const collocations = await discoverCollocations(message.word);
-        return { success: true, collocations };
-      } catch (e) {
-        return { success: false, error: String(e) };
-      }
-    }
-
     case "DICT_LOOKUP": {
       try {
         const { lookupLocal } = await import("../src/lib/local-dictionary");
@@ -875,6 +800,18 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
 
     case "OPEN_DASHBOARD": {
       await openDashboard(message.hash);
+      return { success: true };
+    }
+
+    case "SPEAK_WORD": {
+      await ensureOffscreen();
+      await chrome.runtime.sendMessage({ target: "offscreen", type: "SPEAK_WORD", word: message.word });
+      return { success: true };
+    }
+
+    case "STOP_SPEAKING": {
+      await ensureOffscreen();
+      await chrome.runtime.sendMessage({ target: "offscreen", type: "STOP_SPEAKING" });
       return { success: true };
     }
 

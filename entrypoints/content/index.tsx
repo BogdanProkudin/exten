@@ -144,7 +144,7 @@ export default defineContentScript({
     let currentUserLevel = "B1";
 
     // Show achievement notification
-    async function showAchievementToast(achievement: { id: string; name: string; icon: string; xp: number; description?: string }) {
+    async function showAchievementToast(achievement: { id: string; name: string; icon: string; description?: string }) {
       // Close existing achievement toast
       if (achievementUi) {
         achievementUi.remove();
@@ -187,13 +187,11 @@ export default defineContentScript({
 
     // Fetch vocab cache early so it's ready when the popup opens
     const vocabCachePromise = chrome.runtime.sendMessage({ type: "GET_VOCAB_CACHE" }).then((res) => {
-      console.log("[Vocabify] GET_VOCAB_CACHE response:", res);
       if (res?.success) {
         if (!vocabCacheLemmas) vocabCacheLemmas = new Set();
         for (const l of res.lemmas as string[]) vocabCacheLemmas.add(l);
         // Also include words (for pre-migration entries without lemma)
         for (const w of res.words as string[]) vocabCacheLemmas.add(w);
-        console.log("[Vocabify] Cache loaded with lemmas:", Array.from(vocabCacheLemmas));
 
         // Initialize YouTube overlay if already on a video page
         if (isYouTubeVideoPage()) {
@@ -284,7 +282,6 @@ export default defineContentScript({
         await new Promise((r) => setTimeout(r, 500));
       }
       if (!player) {
-        console.log("[Vocabify] YouTube player not found, skipping overlay");
         return;
       }
 
@@ -308,7 +305,6 @@ export default defineContentScript({
         />,
       );
       
-      console.log("[Vocabify] YouTube overlay initialized");
     }
     
     function cleanupYouTubeOverlay() {
@@ -379,7 +375,7 @@ export default defineContentScript({
     let excludedDomains: string[] = [];
     chrome.storage.sync.get("excludedDomains").then((data: Record<string, unknown>) => {
       excludedDomains = (data.excludedDomains as string[]) || [];
-    });
+    }).catch(() => {});
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === "sync" && changes.excludedDomains) {
         excludedDomains = (changes.excludedDomains.newValue as string[]) || [];
@@ -416,26 +412,13 @@ export default defineContentScript({
 
       const wordCount = text.split(/\s+/).length;
       const isSingleWord = !text.includes(" ") && /^[a-zA-Z'-]+$/.test(text);
-      const isShortPhrase = text.includes(" ") && wordCount <= 4;
       const isSentence = text.includes(" ") && wordCount > 1 && text.length <= 300;
 
       // Determine which popup to show
       let showSentencePopup = false;
 
-      let detectedPhraseResult: { phrase: string; type: string } | null = null;
-
       if (isSingleWord) {
         // Single word → FloatingPopup (below)
-      } else if (isShortPhrase) {
-        const { detectPhrase } = await import("../../src/lib/phrase-detector");
-        detectedPhraseResult = detectPhrase(text);
-        if (detectedPhraseResult) {
-          // Known phrase → FloatingPopup (below)
-        } else if (isSentence) {
-          showSentencePopup = true;
-        } else {
-          return;
-        }
       } else if (isSentence) {
         showSentencePopup = true;
       } else {
@@ -450,7 +433,7 @@ export default defineContentScript({
       // Position relative to the selected word using document coordinates
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
-      const currentPopupWidth = showSentencePopup ? 380 : 340;
+      const currentPopupWidth = showSentencePopup ? 380 : 340; // sentence popup is wider
       // Convert viewport coords to document coords by adding scroll offset
       const scrollX = window.scrollX;
       const scrollY = window.scrollY;
@@ -486,10 +469,6 @@ export default defineContentScript({
                   sentenceUi = null;
                 }}
                 vocabLemmas={vocabCacheLemmas ?? undefined}
-                onSaved={(lemma) => {
-                  if (!vocabCacheLemmas) vocabCacheLemmas = new Set();
-                  vocabCacheLemmas.add(lemma);
-                }}
                 onWordClick={(word) => {
                   // Close sentence popup, open FloatingPopup for the clicked word
                   sentenceUi?.remove();
@@ -498,9 +477,6 @@ export default defineContentScript({
                     x: position.x + currentPopupWidth / 2,
                     y: position.y,
                   });
-                }}
-                onAchievement={(achievement) => {
-                  showAchievementToast(achievement);
                 }}
               />,
             );
@@ -544,8 +520,6 @@ export default defineContentScript({
               onAchievement={(achievement) => {
                 showAchievementToast(achievement);
               }}
-              wordType={detectedPhraseResult ? "phrase" : undefined}
-              phraseCategory={detectedPhraseResult?.type}
             />,
           );
           return root;

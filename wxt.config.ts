@@ -17,7 +17,7 @@ export default defineConfig({
       48: "icon-48.png",
       128: "icon-128.png",
     },
-    permissions: ["storage", "alarms", "activeTab", "contextMenus", "scripting", "idle"],
+    permissions: ["storage", "alarms", "activeTab", "contextMenus", "scripting", "idle", "offscreen"],
     commands: {
       "translate-selection": {
         suggested_key: {

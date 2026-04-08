@@ -11,18 +11,7 @@ type Mode =
   | "translation-to-word"
   | "word-to-translation"
   | "speak"
-  | "sentence-writing"
-  | "sentence-recall";
-
-function fuzzyMatchSentence(input: string, target: string): { ratio: number; isMatch: boolean } {
-  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(Boolean);
-  const inputWords = new Set(normalize(input));
-  const targetWords = normalize(target);
-  if (targetWords.length === 0) return { ratio: 0, isMatch: false };
-  const matched = targetWords.filter(w => inputWords.has(w)).length;
-  const ratio = matched / targetWords.length;
-  return { ratio, isMatch: ratio >= 0.8 };
-}
+  | "sentence-writing";
 
 interface WritingPracticeProps {
   deviceId: string;
@@ -48,8 +37,7 @@ function containsWord(sentence: string, word: string): boolean {
 }
 
 export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
-  const allWords = useQuery(api.words.getQuizWords, { deviceId, limit: 50, typeFilter: ["word", "phrase"] });
-  const allSentences = useQuery(api.words.getQuizWords, { deviceId, limit: 30, typeFilter: ["sentence"] });
+  const allWords = useQuery(api.words.getQuizWords, { deviceId, limit: 50 });
   const updateReview = useMutation(api.words.updateReview);
   const [mode, setMode] = useState<Mode>("translation-to-word");
 
@@ -75,8 +63,8 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
   const [completedWords, setCompletedWords] = useState<string[]>([]);
 
   // Slider bounds
-  const wordPool = mode === "sentence-recall" ? (allSentences?.length ?? 0) : (allWords?.length ?? 0);
-  const sliderMin = mode === "sentence-writing" || mode === "sentence-recall" ? 1 : 5;
+  const wordPool = allWords?.length ?? 0;
+  const sliderMin = mode === "sentence-writing" ? 1 : 5;
   const sliderMax = Math.max(sliderMin, wordPool);
 
   // Clamp questionCount when mode or pool changes
@@ -100,9 +88,8 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
   }, [words, currentIndex]);
 
   const startPractice = useCallback(() => {
-    const pool = mode === "sentence-recall" ? allSentences : allWords;
-    if (!pool || pool.length === 0) return;
-    const shuffled = [...pool]
+    if (!allWords || allWords.length === 0) return;
+    const shuffled = [...allWords]
       .sort(() => Math.random() - 0.5)
       .slice(0, questionCount);
     setWords(shuffled);
@@ -116,13 +103,13 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
     setScore({ correct: 0, total: 0 });
     setStarted(true);
     setTimeout(() => {
-      if (mode === "sentence-writing" || mode === "sentence-recall") {
+      if (mode === "sentence-writing") {
         textareaRef.current?.focus();
       } else {
         inputRef.current?.focus();
       }
     }, 100);
-  }, [allWords, allSentences, questionCount, mode]);
+  }, [allWords, questionCount, mode]);
 
   const currentWord = words?.[currentIndex];
   const isComplete = started && currentIndex >= (words?.length ?? 0);
@@ -165,8 +152,6 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
       setSentence("");
       setSentenceError("");
       setWritingStage("writing");
-      setTimeout(() => textareaRef.current?.focus(), 100);
-    } else if (mode === "sentence-recall") {
       setTimeout(() => textareaRef.current?.focus(), 100);
     } else {
       setTimeout(() => inputRef.current?.focus(), 100);
@@ -273,7 +258,7 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
 
   // Setup screen — shown before practice starts, never gated on writingWords loading
   if (!started) {
-    const noWords = mode === "sentence-recall" ? (allSentences?.length ?? 0) === 0 : allWords.length === 0;
+    const noWords = allWords.length === 0;
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
         <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6">
@@ -311,10 +296,6 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
                     {
                       key: "sentence-writing" as Mode,
                       label: "✍️ Sentence Writing",
-                    },
-                    {
-                      key: "sentence-recall" as Mode,
-                      label: "📝 Sentence Recall",
                     },
                   ] as const
                 ).map((opt) => (
@@ -588,102 +569,6 @@ export function WritingPractice({ deviceId, onClose }: WritingPracticeProps) {
                   {currentIndex + 1 >= (words?.length ?? 0)
                     ? "See Results"
                     : "Next Word"}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Sentence-recall practice screen ---
-  if (mode === "sentence-recall") {
-    return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 pt-5 pb-3">
-            <h2 className="text-lg font-semibold text-gray-800">Sentence Recall</h2>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-400">{currentIndex + 1} / {words?.length ?? 0}</span>
-              <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors text-xl leading-none">×</button>
-            </div>
-          </div>
-
-          {/* Progress bar */}
-          <div className="px-6 pb-4">
-            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${((currentIndex + (showAnswer ? 1 : 0)) / (words?.length || 1)) * 100}%` }} />
-            </div>
-          </div>
-
-          <div className="px-6 pb-6">
-            {/* Prompt: show translation */}
-            <div className="mb-4">
-              <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Type this sentence in English</p>
-              <p className="text-base text-gray-700 leading-relaxed">{currentWord?.translation}</p>
-            </div>
-
-            {!showAnswer ? (
-              <>
-                <textarea
-                  ref={textareaRef}
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (userInput.trim() && currentWord) {
-                        const match = fuzzyMatchSentence(userInput, currentWord.word);
-                        setResult(match.isMatch ? "correct" : "incorrect");
-                        setShowAnswer(true);
-                        setScore((prev) => ({ correct: prev.correct + (match.isMatch ? 1 : 0), total: prev.total + 1 }));
-                        updateReview({ id: currentWord._id, deviceId, remembered: match.isMatch }).catch(() => {});
-                      }
-                    }
-                  }}
-                  placeholder="Type the English sentence..."
-                  className="w-full border border-gray-200 rounded-lg p-3 text-sm text-gray-800 placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  rows={3}
-                  autoFocus
-                />
-                <button
-                  onClick={() => {
-                    if (!userInput.trim() || !currentWord) return;
-                    const match = fuzzyMatchSentence(userInput, currentWord.word);
-                    setResult(match.isMatch ? "correct" : "incorrect");
-                    setShowAnswer(true);
-                    setScore((prev) => ({ correct: prev.correct + (match.isMatch ? 1 : 0), total: prev.total + 1 }));
-                    updateReview({ id: currentWord._id, deviceId, remembered: match.isMatch }).catch(() => {});
-                  }}
-                  disabled={!userInput.trim()}
-                  className="mt-4 w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
-                >
-                  Check
-                </button>
-              </>
-            ) : (
-              <>
-                {/* Result */}
-                <div className={`rounded-lg p-4 mb-4 border ${result === "correct" ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
-                  <p className={`text-sm font-medium mb-1 ${result === "correct" ? "text-green-700" : "text-red-700"}`}>
-                    {result === "correct" ? "Correct!" : "Not quite"}
-                  </p>
-                  <p className={`text-sm ${result === "correct" ? "text-green-800" : "text-red-800"}`}>{userInput}</p>
-                </div>
-
-                {/* Correct answer */}
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-                  <p className="text-sm font-medium text-gray-600 mb-1">Expected</p>
-                  <p className="text-sm text-gray-800 leading-relaxed">&ldquo;{currentWord?.word}&rdquo;</p>
-                </div>
-
-                <button
-                  onClick={nextWord}
-                  className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
-                >
-                  {currentIndex + 1 >= (words?.length ?? 0) ? "See Results" : "Next Sentence"}
                 </button>
               </>
             )}

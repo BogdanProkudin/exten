@@ -1,5 +1,3 @@
-import { getAllCollocationsForWord } from "./phrase-detector";
-
 export interface WordNode {
   id: string;
   word: string;
@@ -13,7 +11,7 @@ export interface WordNode {
 export interface WordEdge {
   source: string;
   target: string;
-  type: "synonym" | "antonym" | "collocation" | "family";
+  type: "synonym" | "antonym" | "family";
 }
 
 interface WordData {
@@ -36,7 +34,7 @@ interface ExplorationData {
 
 /**
  * Build a full vocabulary network from ALL saved words.
- * Edges connect words that are synonyms, antonyms, share a lemma, or are collocations.
+ * Edges connect words that are synonyms, antonyms, or share a lemma.
  * Optionally includes a temporary exploration node (unsaved word being explored).
  */
 export function buildFullNetwork(
@@ -151,20 +149,6 @@ export function buildFullNetwork(
         otherEnrichment.antonyms.some((a) => a.toLowerCase() === word)
       ) {
         addEdge(word, antLower, "antonym");
-      }
-    }
-  }
-
-  // Collocation edges
-  for (const lower of nodeSet) {
-    const cols = getAllCollocationsForWord(lower);
-    for (const col of cols) {
-      const colWords = col.split(/\s+/);
-      for (const cw of colWords) {
-        const cwLower = cw.toLowerCase();
-        if (cwLower !== lower && nodeSet.has(cwLower)) {
-          addEdge(lower, cwLower, "collocation");
-        }
       }
     }
   }

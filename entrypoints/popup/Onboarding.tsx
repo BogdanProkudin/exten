@@ -29,20 +29,17 @@ const LEVELS = [
 ];
 
 const GOALS = [
-  { xp: 50, words: "~5", label: "Casual", desc: "Learn at your own pace" },
-  { xp: 100, words: "~10", label: "Regular", desc: "Build a daily habit" },
-  { xp: 200, words: "~20", label: "Serious", desc: "Fast progress" },
-  { xp: 300, words: "~30", label: "Intense", desc: "Maximum growth" },
+  { value: 5, words: "~5", label: "Casual", desc: "Learn at your own pace" },
+  { value: 10, words: "~10", label: "Regular", desc: "Build a daily habit" },
+  { value: 20, words: "~20", label: "Serious", desc: "Fast progress" },
+  { value: 30, words: "~30", label: "Intense", desc: "Maximum growth" },
 ];
-
-// Map XP-style values to word counts
-const XP_TO_WORDS: Record<number, number> = { 50: 5, 100: 10, 200: 20, 300: 30 };
 
 export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState(0);
   const [targetLang, setTargetLang] = useState("ru");
   const [userLevel, setUserLevel] = useState("B1");
-  const [dailyGoal, setDailyGoal] = useState(100);
+  const [dailyGoal, setDailyGoal] = useState(10);
   const setDailyGoalMutation = useMutation(api.gamification.setDailyGoal);
 
   // Restore progress on mount
@@ -69,7 +66,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     chrome.storage.local.remove("onboardingProgress");
 
     // Sync daily goal to Convex
-    const mappedGoal = XP_TO_WORDS[dailyGoal] ?? Math.round(dailyGoal / 10);
+    const mappedGoal = dailyGoal;
     chrome.runtime.sendMessage({ type: "GET_DEVICE_ID" }).then((res) => {
       if (res?.deviceId) {
         setDailyGoalMutation({ deviceId: res.deviceId, goal: mappedGoal });
@@ -183,21 +180,21 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           <div className="space-y-2 mb-4">
             {GOALS.map((goal) => (
               <button
-                key={goal.xp}
-                onClick={() => setDailyGoal(goal.xp)}
+                key={goal.value}
+                onClick={() => setDailyGoal(goal.value)}
                 className={`w-full p-3 rounded-xl text-left transition-all ${
-                  dailyGoal === goal.xp
+                  dailyGoal === goal.value
                     ? "bg-blue-500 text-white"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{goal.label}</span>
-                  <span className={`text-xs ${dailyGoal === goal.xp ? "text-blue-100" : "text-gray-500"}`}>
+                  <span className={`text-xs ${dailyGoal === goal.value ? "text-blue-100" : "text-gray-500"}`}>
                     {goal.words} words/day
                   </span>
                 </div>
-                <p className={`text-xs ${dailyGoal === goal.xp ? "text-blue-100" : "text-gray-500"}`}>
+                <p className={`text-xs ${dailyGoal === goal.value ? "text-blue-100" : "text-gray-500"}`}>
                   {goal.desc}
                 </p>
               </button>

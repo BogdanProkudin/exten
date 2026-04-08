@@ -34,8 +34,8 @@ export default defineSchema({
     // Smart context capture
     exampleContext: v.optional(v.array(v.string())),
     exampleSource: v.optional(v.string()),
-    // Entry type: word (default), phrase, or sentence
-    type: v.optional(v.union(v.literal("word"), v.literal("phrase"), v.literal("sentence"))),
+    // Entry type (legacy field, always "word")
+    type: v.optional(v.literal("word")),
     // FSRS-5 memory model fields
     fsrsStability: v.optional(v.number()),
     fsrsDifficulty: v.optional(v.number()),

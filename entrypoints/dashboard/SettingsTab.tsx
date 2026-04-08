@@ -67,34 +67,39 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
       if (data.radarEnabled !== undefined) setRadarEnabled(data.radarEnabled as boolean);
       if (data.youtubeSubtitlesEnabled !== undefined) setYoutubeSubtitlesEnabled(data.youtubeSubtitlesEnabled as boolean);
       if (data.excludedDomains) setExcludedDomains(data.excludedDomains as string[]);
-    });
-    loadTtsSettings().then(setTtsSettings);
-    getAvailableVoices().then(setVoices);
+    }).catch(() => {});
+    loadTtsSettings().then(setTtsSettings).catch(() => {});
+    getAvailableVoices().then(setVoices).catch(() => {});
     chrome.storage.local.get("openaiApiKey").then((d) => {
       if (d.openaiApiKey) setOpenaiApiKey(d.openaiApiKey as string);
-    });
+    }).catch(() => {});
   }, []);
 
   const handleIntervalChange = (val: number) => {
     setReviewInterval(val);
     chrome.storage.sync.set({ reviewIntervalMinutes: val });
-    chrome.runtime.sendMessage({ type: "UPDATE_ALARM", intervalMinutes: val });
+    chrome.runtime.sendMessage({ type: "UPDATE_ALARM", intervalMinutes: val }).catch(() => {});
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">Settings</h2>
+    <div className="max-w-2xl mx-auto space-y-5">
+      <div className="stats-enter" style={{ animationDelay: "0ms" }}>
+        <h2 className="text-lg font-bold text-gray-900 mb-0.5">Settings</h2>
         <p className="text-sm text-gray-400">Customize your learning experience</p>
       </div>
 
       {/* Review Settings */}
-      <Section title="Review" icon="📖">
+      <Section
+        title="Review"
+        icon={<path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />}
+        iconColor="#6366f1"
+        delay="40ms"
+      >
         <Field label="Review every">
           <select
             value={reviewInterval}
             onChange={(e) => handleIntervalChange(Number(e.target.value))}
-            className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all"
+            className="settings-select"
           >
             <option value={15}>15 minutes</option>
             <option value={30}>30 minutes</option>
@@ -132,12 +137,17 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
       </Section>
 
       {/* Language */}
-      <Section title="Language" icon="🌍">
+      <Section
+        title="Language"
+        icon={<path d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />}
+        iconColor="#10b981"
+        delay="80ms"
+      >
         <Field label="Translate to">
           <select
             value={targetLang}
             onChange={(e) => { setTargetLang(e.target.value); chrome.storage.sync.set({ targetLang: e.target.value }); }}
-            className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all"
+            className="settings-select"
           >
             <option value="ru">Russian</option>
             <option value="es">Spanish</option>
@@ -159,7 +169,7 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
           <select
             value={userLevel}
             onChange={(e) => { setUserLevel(e.target.value); chrome.storage.sync.set({ userLevel: e.target.value }); }}
-            className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all"
+            className="settings-select"
           >
             <option value="A2">A2 - Elementary</option>
             <option value="B1">B1 - Intermediate</option>
@@ -170,7 +180,12 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
       </Section>
 
       {/* Voice & Pronunciation */}
-      <Section title="Voice & Pronunciation" icon="🔊">
+      <Section
+        title="Voice & Pronunciation"
+        icon={<><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></>}
+        iconColor="#8b5cf6"
+        delay="120ms"
+      >
         <Field label="Engine">
           <div className="flex gap-2">
             {([
@@ -186,14 +201,10 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
                   saveTtsSettings(updated);
                   setPreviewError(null);
                 }}
-                className={`flex-1 py-2.5 px-2 text-center rounded-lg transition-all ${
-                  ttsSettings.engine === eng.id
-                    ? "bg-indigo-500 text-white shadow-sm"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
+                className={`settings-option-btn flex-1 ${ttsSettings.engine === eng.id ? "active" : ""}`}
               >
-                <span className="text-sm font-medium block">{eng.label}</span>
-                <span className={`text-[10px] block mt-0.5 ${ttsSettings.engine === eng.id ? "text-indigo-100" : "text-gray-400"}`}>{eng.desc}</span>
+                <span className="text-sm font-semibold block">{eng.label}</span>
+                <span className={`text-[10px] block mt-0.5 ${ttsSettings.engine === eng.id ? "text-indigo-200" : "text-gray-400"}`}>{eng.desc}</span>
               </button>
             ))}
           </div>
@@ -212,11 +223,7 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
                       setTtsSettings(updated);
                       saveTtsSettings(updated);
                     }}
-                    className={`py-1.5 px-2 text-xs font-medium rounded-lg transition-all capitalize ${
-                      ttsSettings.openaiVoice === v
-                        ? "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300"
-                        : "bg-gray-50 text-gray-600 hover:bg-gray-100"
-                    }`}
+                    className={`settings-chip ${ttsSettings.openaiVoice === v ? "active" : ""}`}
                   >
                     {v}
                   </button>
@@ -232,9 +239,9 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
                   chrome.storage.local.set({ openaiApiKey: e.target.value });
                 }}
                 placeholder="sk-..."
-                className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all"
+                className="settings-input"
               />
-              <p className="text-[10px] text-gray-400 mt-1">Used for TTS and AI features. Stored locally.</p>
+              <p className="text-[10px] text-gray-400 mt-1.5">Used for TTS and AI features. Stored locally only.</p>
             </Field>
           </>
         )}
@@ -250,7 +257,7 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
                   setTtsSettings(updated);
                   saveTtsSettings(updated);
                 }}
-                className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all"
+                className="settings-select"
               >
                 <option value="">System default</option>
                 {voices.map((v) => (
@@ -273,7 +280,10 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
         />
 
         {previewError && (
-          <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-lg">{previewError}</p>
+          <div className="flex items-center gap-2 text-xs text-red-500 bg-red-50 px-3 py-2 rounded-xl border border-red-100">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            {previewError}
+          </div>
         )}
 
         <button
@@ -282,7 +292,7 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
             playPreview("Hello, vocabulary!", ttsSettings)
               .catch((e) => setPreviewError(e.message || "Preview failed"));
           }}
-          className="mt-1 flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-sm font-medium transition-colors"
+          className="mt-1 settings-preview-btn"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="5 3 19 12 5 21 5 3" />
@@ -292,20 +302,28 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
       </Section>
 
       {/* Appearance */}
-      <Section title="Appearance" icon="🎨">
+      <Section
+        title="Appearance"
+        icon={<><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></>}
+        iconColor="#f59e0b"
+        delay="160ms"
+      >
         <Field label="Theme">
           <div className="flex gap-2">
-            {(["light", "dark", "system"] as const).map((t) => (
+            {([
+              { id: "light" as const, label: "Light", icon: <><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></> },
+              { id: "dark" as const, label: "Dark", icon: <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/> },
+              { id: "system" as const, label: "System", icon: <><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><path d="M8 21h8M12 17v4"/></> },
+            ]).map((t) => (
               <button
-                key={t}
-                onClick={() => { setTheme(t); chrome.storage.sync.set({ theme: t }); }}
-                className={`flex-1 py-2 px-3 text-sm rounded-lg transition-all font-medium ${
-                  theme === t
-                    ? "bg-indigo-500 text-white shadow-sm"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
+                key={t.id}
+                onClick={() => { setTheme(t.id); chrome.storage.sync.set({ theme: t.id }); }}
+                className={`settings-option-btn flex-1 ${theme === t.id ? "active" : ""}`}
               >
-                {t === "light" ? "☀️ Light" : t === "dark" ? "🌙 Dark" : "💻 System"}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-1">
+                  {t.icon}
+                </svg>
+                <span className="text-xs font-semibold block">{t.label}</span>
               </button>
             ))}
           </div>
@@ -313,7 +331,12 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
       </Section>
 
       {/* Features */}
-      <Section title="Features" icon="⚡">
+      <Section
+        title="Features"
+        icon={<><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></>}
+        iconColor="#f97316"
+        delay="200ms"
+      >
         <Toggle label="Reading Assistant" description="Analyze page difficulty and show unknown words"
           checked={readingAssistantEnabled}
           onChange={(v) => { setReadingAssistantEnabled(v); chrome.storage.sync.set({ readingAssistantEnabled: v }); }}
@@ -329,20 +352,32 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
       </Section>
 
       {/* Excluded Sites */}
-      <Section title="Excluded Sites" icon="🚫">
+      <Section
+        title="Excluded Sites"
+        icon={<><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></>}
+        iconColor="#ef4444"
+        delay="240ms"
+      >
         <div className="space-y-2">
           {excludedDomains.length > 0 ? (
             <div className="space-y-1.5">
               {excludedDomains.map((domain) => (
-                <div key={domain} className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-gray-50 group">
-                  <span className="text-sm text-gray-600">{domain}</span>
+                <div key={domain} className="settings-domain-row group">
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-md bg-gray-100 flex items-center justify-center shrink-0">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+                      </svg>
+                    </div>
+                    <span className="text-sm text-gray-600 font-medium">{domain}</span>
+                  </div>
                   <button
                     onClick={() => {
                       const updated = excludedDomains.filter((d) => d !== domain);
                       setExcludedDomains(updated);
                       chrome.storage.sync.set({ excludedDomains: updated });
                     }}
-                    className="text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                    className="text-gray-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 cursor-pointer hover:scale-110"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -352,7 +387,7 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-400">No excluded sites</p>
+            <p className="text-sm text-gray-400 py-2">No excluded sites</p>
           )}
           <div className="flex gap-2 mt-2">
             <input
@@ -371,7 +406,7 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
                   setNewDomain("");
                 }
               }}
-              className="flex-1 text-sm px-3 py-2 border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all"
+              className="settings-input flex-1"
             />
             <button
               onClick={() => {
@@ -383,8 +418,11 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
                 }
                 setNewDomain("");
               }}
-              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm font-medium transition-colors"
+              className="settings-add-btn"
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
               Add
             </button>
           </div>
@@ -392,11 +430,14 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
       </Section>
 
       {/* Danger zone */}
-      <div className="pt-2 border-t border-gray-100">
+      <div className="pt-3 border-t border-gray-100/60 stats-enter" style={{ animationDelay: "280ms" }}>
         <button
           onClick={() => chrome.storage.local.remove("vocabifyTips")}
-          className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          className="text-xs text-gray-400 hover:text-gray-600 transition-colors cursor-pointer flex items-center gap-1.5"
         >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1 4v6h6M23 20v-6h-6" /><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" />
+          </svg>
           Reset learning tips
         </button>
       </div>
@@ -406,15 +447,20 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
 
 /* ---------- Reusable sub-components ---------- */
 
-function Section({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
+function Section({ title, icon, iconColor, children, delay = "0ms" }: {
+  title: string; icon: React.ReactNode; iconColor: string; children: React.ReactNode; delay?: string;
+}) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-gray-50 bg-gray-50/50">
-        <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-          <span>{icon}</span> {title}
-        </h3>
+    <div className="stats-section stats-enter overflow-hidden" style={{ animationDelay: delay }}>
+      <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-gray-100/60">
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: iconColor + "10" }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {icon}
+          </svg>
+        </div>
+        <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
       </div>
-      <div className="px-5 py-4 space-y-4">
+      <div className="space-y-4">
         {children}
       </div>
     </div>
@@ -424,7 +470,7 @@ function Section({ title, icon, children }: { title: string; icon: string; child
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="text-xs font-medium text-gray-500 mb-1.5 block">{label}</label>
+      <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">{label}</label>
       {children}
     </div>
   );
@@ -435,17 +481,21 @@ function SliderField({ label, value, min, max, step = 1, suffix = "", format, on
   format?: (v: number) => string; onChange: (v: number) => void;
 }) {
   const display = format ? format(value) : `${value}${suffix}`;
+  const pct = ((value - min) / (max - min)) * 100;
   return (
     <div>
-      <label className="text-xs font-medium text-gray-500 mb-1.5 flex justify-between">
+      <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 flex justify-between">
         <span>{label}</span>
-        <span className="font-normal text-gray-400">{display}</span>
+        <span className="font-semibold text-gray-600 normal-case tracking-normal tabular-nums">{display}</span>
       </label>
-      <input
-        type="range" min={min} max={max} step={step} value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-indigo-500 bg-gray-200"
-      />
+      <div className="relative">
+        <input
+          type="range" min={min} max={max} step={step} value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="settings-slider"
+          style={{ "--slider-pct": `${pct}%` } as React.CSSProperties}
+        />
+      </div>
     </div>
   );
 }
@@ -454,15 +504,15 @@ function Toggle({ label, description, checked, onChange }: {
   label: string; description: string; checked: boolean; onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between cursor-pointer group py-1">
+    <label className="flex items-center justify-between cursor-pointer group py-1.5 px-1 -mx-1 rounded-xl hover:bg-gray-50/50 transition-colors">
       <div>
         <span className="text-sm font-medium text-gray-700">{label}</span>
-        <p className="text-xs text-gray-400 mt-0.5">{description}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{description}</p>
       </div>
       <div className="relative shrink-0 ml-4">
         <input type="checkbox" className="sr-only peer" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-        <div className="w-9 h-5 bg-gray-200 rounded-full peer-checked:bg-indigo-500 transition-colors" />
-        <div className="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform peer-checked:translate-x-4" />
+        <div className="w-10 h-[22px] bg-gray-200 rounded-full peer-checked:bg-indigo-500 transition-all duration-200 peer-checked:shadow-[0_0_0_3px_rgba(99,102,241,0.15)]" />
+        <div className="absolute top-[3px] left-[3px] w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200 peer-checked:translate-x-[18px]" />
       </div>
     </label>
   );

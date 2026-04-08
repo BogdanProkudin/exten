@@ -3,20 +3,20 @@ import { query, mutation, internalMutation } from "./_generated/server";
 
 // Achievement definitions
 const ACHIEVEMENTS = {
-  first_word: { name: "First Steps", description: "Save your first word", icon: "🌱", xp: 25 },
-  words_10: { name: "Collector", description: "Save 10 words", icon: "📚", xp: 50 },
-  words_50: { name: "Bookworm", description: "Save 50 words", icon: "🐛", xp: 100 },
-  words_100: { name: "Word Wizard", description: "Save 100 words", icon: "🧙", xp: 200 },
-  words_500: { name: "Lexicon Legend", description: "Save 500 words", icon: "👑", xp: 500 },
-  streak_3: { name: "Consistent", description: "3 day streak", icon: "🔥", xp: 30 },
-  streak_7: { name: "Weekly Warrior", description: "7 day streak", icon: "⚡", xp: 75 },
-  streak_30: { name: "Monthly Master", description: "30 day streak", icon: "💎", xp: 300 },
-  streak_100: { name: "Unstoppable", description: "100 day streak", icon: "🏆", xp: 1000 },
-  level_5: { name: "Rising Star", description: "Reach level 5", icon: "⭐", xp: 100 },
-  level_10: { name: "Expert", description: "Reach level 10", icon: "🌟", xp: 250 },
-  reviews_100: { name: "Dedicated", description: "Complete 100 reviews", icon: "🎯", xp: 100 },
-  reviews_500: { name: "Memory Master", description: "Complete 500 reviews", icon: "🧠", xp: 300 },
-  perfect_day: { name: "Perfect Day", description: "Review 20+ words with 100% accuracy", icon: "💯", xp: 75 },
+  first_word: { name: "First Steps", description: "Save your first word", icon: "🌱" },
+  words_10: { name: "Collector", description: "Save 10 words", icon: "📚" },
+  words_50: { name: "Bookworm", description: "Save 50 words", icon: "🐛" },
+  words_100: { name: "Word Wizard", description: "Save 100 words", icon: "🧙" },
+  words_500: { name: "Lexicon Legend", description: "Save 500 words", icon: "👑" },
+  streak_3: { name: "Consistent", description: "3 day streak", icon: "🔥" },
+  streak_7: { name: "Weekly Warrior", description: "7 day streak", icon: "⚡" },
+  streak_30: { name: "Monthly Master", description: "30 day streak", icon: "💎" },
+  streak_100: { name: "Unstoppable", description: "100 day streak", icon: "🏆" },
+  level_5: { name: "Rising Star", description: "Reach level 5", icon: "⭐" },
+  level_10: { name: "Expert", description: "Reach level 10", icon: "🌟" },
+  reviews_100: { name: "Dedicated", description: "Complete 100 reviews", icon: "🎯" },
+  reviews_500: { name: "Memory Master", description: "Complete 500 reviews", icon: "🧠" },
+  perfect_day: { name: "Perfect Day", description: "Review 20+ words with 100% accuracy", icon: "💯" },
 } as const;
 
 export const getAchievements = query({
@@ -64,7 +64,7 @@ export const checkAchievements = mutation({
       .collect();
     const unlockedIds = new Set(unlocked.map((a) => a.achievementId));
 
-    const newAchievements: Array<{ id: string; name: string; icon: string; xp: number }> = [];
+    const newAchievements: Array<{ id: string; name: string; icon: string }> = [];
 
     for (const { id, threshold } of WORD_COUNT_ACHIEVEMENTS) {
       if (wordCount >= threshold && !unlockedIds.has(id)) {
@@ -75,7 +75,7 @@ export const checkAchievements = mutation({
           unlockedAt: Date.now(),
           notified: false,
         });
-        newAchievements.push({ id, name: def.name, icon: def.icon, xp: def.xp });
+        newAchievements.push({ id, name: def.name, icon: def.icon });
       }
     }
 
@@ -100,7 +100,7 @@ export const checkAchievements = mutation({
             unlockedAt: Date.now(),
             notified: false,
           });
-          newAchievements.push({ id, name: def.name, icon: def.icon, xp: def.xp });
+          newAchievements.push({ id, name: def.name, icon: def.icon });
         }
       }
       const REVIEW_ACHIEVEMENTS = [
@@ -116,7 +116,7 @@ export const checkAchievements = mutation({
             unlockedAt: Date.now(),
             notified: false,
           });
-          newAchievements.push({ id, name: def.name, icon: def.icon, xp: def.xp });
+          newAchievements.push({ id, name: def.name, icon: def.icon });
         }
       }
     }
@@ -132,7 +132,9 @@ function todayStr(): string {
 }
 
 function isYesterday(dateStr: string): boolean {
+  if (!dateStr) return false;
   const d = new Date(dateStr + "T00:00:00Z");
+  if (isNaN(d.getTime())) return false;
   const yesterday = new Date();
   yesterday.setUTCDate(yesterday.getUTCDate() - 1);
   return d.toISOString().slice(0, 10) === yesterday.toISOString().slice(0, 10);
@@ -207,7 +209,7 @@ export const incrementDailyProgress = internalMutation({
 
     const updates: Record<string, unknown> = { updatedAt: now };
 
-    // Day rollover
+    // Day rollover or first real activity (streak stuck at 0 from setDailyGoal init)
     if (row.lastActiveDate !== today) {
       const previousGoalMet =
         (row.dailyReviewsDone + row.dailyWordsLearned) >= row.dailyGoalXp;
@@ -221,8 +223,10 @@ export const incrementDailyProgress = internalMutation({
       // Reset daily counters
       updates.dailyReviewsDone = 0;
       updates.dailyWordsLearned = 0;
-      updates.dailyXp = 0;
       updates.lastActiveDate = today;
+    } else if (row.currentStreak === 0) {
+      // Fix stuck state: record was created by setDailyGoal with streak=0
+      updates.currentStreak = 1;
     }
 
     // Increment the right counter
@@ -262,7 +266,7 @@ export const setDailyGoal = mutation({
         deviceId,
         currentStreak: 0,
         longestStreak: 0,
-        lastActiveDate: today,
+        lastActiveDate: "",
         totalXp: 0,
         level: 1,
         dailyXp: 0,
@@ -281,20 +285,3 @@ export const setDailyGoal = mutation({
   },
 });
 
-export const addReviewXP = mutation({
-  args: { deviceId: v.string(), xp: v.number() },
-  handler: async (ctx, { deviceId, xp }) => {
-    if (xp <= 0) return;
-    const clampedXp = Math.min(xp, 50); // Server-side cap to prevent abuse
-    const row = await ctx.db
-      .query("userStats")
-      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .first();
-    if (!row) return;
-    await ctx.db.patch(row._id, {
-      totalXp: (row.totalXp ?? 0) + clampedXp,
-      dailyXp: (row.dailyXp ?? 0) + clampedXp,
-      updatedAt: Date.now(),
-    });
-  },
-});

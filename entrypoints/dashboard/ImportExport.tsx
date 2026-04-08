@@ -148,7 +148,6 @@ export function ImportExport({ deviceId, onClose }: ImportExportProps) {
             word: w.word.toLowerCase(),
             translation: w.translation,
             status: w.status as "new" | "learning" | "known",
-            ...(w.type && w.type !== "word" ? { type: w.type as "word" | "phrase" | "sentence" } : {}),
           });
           
           if (result.imported) {

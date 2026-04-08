@@ -216,18 +216,12 @@ export function scheduleCard(
   return next;
 }
 
-/** Apply type-based interval multiplier: phrases retain longer, sentences even more. */
+/** Apply type-based interval multiplier (all words use 1.0x). */
 export function applyTypeIntervalMultiplier(
   scheduledDays: number,
-  wordType?: string,
+  _wordType?: string,
 ): number {
-  const multipliers: Record<string, number> = {
-    word: 1.0,
-    phrase: 1.3,
-    sentence: 1.8,
-  };
-  const m = multipliers[wordType ?? "word"] ?? 1.0;
-  return Math.max(1, Math.round(scheduledDays * m));
+  return Math.max(1, Math.round(scheduledDays));
 }
 
 /** Build an FSRSCard from word document fields. */

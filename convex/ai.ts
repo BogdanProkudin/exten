@@ -238,7 +238,6 @@ ${sanitizeForPrompt(truncated)}`;
 
 export interface SentenceAnalysis {
   grammar: string;
-  phrases: { phrase: string; type: string; meaning: string }[];
   simplified: string;
   vocabulary: { word: string; role: string }[];
 }
@@ -283,12 +282,11 @@ Sentence: "${sanitizeForPrompt(truncated)}"
 Return ONLY valid JSON with this structure:
 {
   "grammar": "1-2 sentence grammar explanation",
-  "phrases": [{"phrase": "...", "type": "idiom|phrasal_verb|collocation", "meaning": "..."}],
   "simplified": "simpler version of the sentence",
   "vocabulary": [{"word": "...", "role": "subject|verb|object|modifier|preposition|conjunction"}]
 }
 
-Keep grammar explanation under 50 words. List only notable phrases (0-3). Vocabulary should cover main content words (3-8 entries).`;
+Keep grammar explanation under 50 words. Vocabulary should cover main content words (3-8 entries).`;
 
     const content = await callOpenAI(apiKey, prompt, 300, 0.2);
 
@@ -298,12 +296,6 @@ Keep grammar explanation under 50 words. List only notable phrases (0-3). Vocabu
       // Validate shape — only accept expected fields with correct types
       result = {
         grammar: typeof parsed.grammar === "string" ? parsed.grammar : content,
-        phrases: Array.isArray(parsed.phrases)
-          ? parsed.phrases.filter((p: unknown) =>
-              p && typeof p === "object" && typeof (p as any).phrase === "string"
-                && typeof (p as any).type === "string" && typeof (p as any).meaning === "string"
-            ).slice(0, 5)
-          : [],
         simplified: typeof parsed.simplified === "string" ? parsed.simplified : truncated,
         vocabulary: Array.isArray(parsed.vocabulary)
           ? parsed.vocabulary.filter((v: unknown) =>
@@ -315,7 +307,6 @@ Keep grammar explanation under 50 words. List only notable phrases (0-3). Vocabu
     } catch {
       result = {
         grammar: content,
-        phrases: [],
         simplified: truncated,
         vocabulary: [],
       };

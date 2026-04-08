@@ -111,8 +111,6 @@ export function YouTubeOverlay({ onWordClick, vocabLemmas }: YouTubeOverlayProps
 
   // Observe caption changes
   useEffect(() => {
-    console.log("[Vocabify] YouTube: watching for captions...");
-
     // Inject CSS to make captions interactive
     let style = document.getElementById("vocabify-yt-style");
     if (!style) {

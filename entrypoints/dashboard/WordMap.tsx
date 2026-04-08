@@ -32,14 +32,12 @@ const STATE_COLORS: Record<string, string> = {
 const EDGE_COLORS: Record<string, string> = {
   synonym: "#93c5fd",
   antonym: "#fca5a5",
-  collocation: "#86efac",
   family: "#c4b5fd",
 };
 
 const EDGE_LABELS: Record<string, string> = {
   synonym: "Synonym",
   antonym: "Antonym",
-  collocation: "Collocation",
   family: "Word family",
 };
 
@@ -370,7 +368,6 @@ export default function WordMap({ deviceId, onClose }: WordMapProps) {
 
   const savedWordData = useMemo(
     () => words
-      .filter((w) => (w.type ?? "word") !== "sentence")
       .map((w) => ({
         word: w.word,
         lemma: w.lemma,

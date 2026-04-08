@@ -3,22 +3,16 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { isSpeechRecognitionSupported, startListening, type SpeechResult } from "../../src/lib/speech-recognition";
-import { generatePhraseBlank } from "../../src/lib/phrase-review";
-
 interface QuizWord {
   _id: Id<"words">;
   word: string;
   translation: string;
-  type: string;
 }
 
 interface QuizQuestion {
   word: QuizWord;
   options: string[];
   correctIndex: number;
-  isPhraseBlank?: boolean;
-  blankDisplay?: string;
-  blankedWord?: string;
 }
 
 interface QuizModeProps {
@@ -27,9 +21,7 @@ interface QuizModeProps {
 }
 
 export function QuizMode({ deviceId, onClose }: QuizModeProps) {
-  const [contentType, setContentType] = useState<"words" | "phrases" | "mixed">("words");
-  const typeFilter = contentType === "words" ? ["word"] : contentType === "phrases" ? ["phrase"] : ["word", "phrase"];
-  const allWords = useQuery(api.words.getQuizWords, { deviceId, limit: 50, ...(typeFilter ? { typeFilter } : {}) });
+  const allWords = useQuery(api.words.getQuizWords, { deviceId, limit: 50 });
   const updateReview = useMutation(api.words.updateReview);
 
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
@@ -52,36 +44,6 @@ export function QuizMode({ deviceId, onClose }: QuizModeProps) {
     const selected = shuffled.slice(0, Math.min(questionCount, shuffled.length));
 
     const newQuestions: QuizQuestion[] = selected.map((word) => {
-      const wordType = word.type ?? "word";
-
-      // Phrase fill-in-the-blank mode
-      if (wordType === "phrase") {
-        const blank = generatePhraseBlank(word.word);
-        // Get distractors: other words from the blanked word pool
-        const otherPhrases = allWords.filter((w) => w._id !== word._id && (w.type ?? "word") === "phrase");
-        const distractorWords = otherPhrases
-          .map((w) => {
-            const b = generatePhraseBlank(w.word);
-            return b.blankedWord;
-          })
-          .filter((w) => w !== blank.blankedWord);
-        // If not enough phrase distractors, add random common words
-        const fallbackWords = ["make", "take", "get", "give", "put", "set", "run", "come", "go", "turn"];
-        const pool = [...new Set([...distractorWords, ...fallbackWords])].filter((w) => w !== blank.blankedWord);
-        const wrongAnswers = pool.sort(() => Math.random() - 0.5).slice(0, 3);
-
-        const allOptions = [...wrongAnswers, blank.blankedWord].sort(() => Math.random() - 0.5);
-        return {
-          word,
-          options: allOptions,
-          correctIndex: allOptions.indexOf(blank.blankedWord),
-          isPhraseBlank: true,
-          blankDisplay: blank.display,
-          blankedWord: blank.blankedWord,
-        };
-      }
-
-      // Standard word quiz
       const otherWords = allWords.filter((w) => w._id !== word._id);
       const wrongAnswers = otherWords
         .sort(() => Math.random() - 0.5)
@@ -166,7 +128,7 @@ export function QuizMode({ deviceId, onClose }: QuizModeProps) {
           <span className="text-4xl mb-4 block">&#128218;</span>
           <h2 className="text-xl font-bold text-gray-900 mb-2">Need More Words</h2>
           <p className="text-gray-600 mb-4">
-            Save at least 4 {contentType !== "words" ? contentType : "words"} to start a quiz. You have {allWords.length}.
+            Save at least 4 words to start a quiz. You have {allWords.length}.
           </p>
           <button
             onClick={onClose}
@@ -201,53 +163,31 @@ export function QuizMode({ deviceId, onClose }: QuizModeProps) {
           </div>
 
           <div className="space-y-4 mb-6">
-            {/* Content type selector */}
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">Content</label>
-              <div className="grid grid-cols-3 gap-2">
-                {(["words", "phrases", "mixed"] as const).map((ct) => (
-                  <button
-                    key={ct}
-                    onClick={() => setContentType(ct)}
-                    className={`p-3 rounded-xl text-sm font-medium transition-all capitalize ${
-                      contentType === ct
-                        ? "bg-blue-500 text-white"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    }`}
-                  >
-                    {ct}
-                  </button>
-                ))}
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Quiz Type</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setQuizType("word-to-translation")}
+                  className={`p-3 rounded-xl text-sm font-medium transition-all ${
+                    quizType === "word-to-translation"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  Word &rarr; Translation
+                </button>
+                <button
+                  onClick={() => setQuizType("translation-to-word")}
+                  className={`p-3 rounded-xl text-sm font-medium transition-all ${
+                    quizType === "translation-to-word"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  Translation &rarr; Word
+                </button>
               </div>
             </div>
-
-            {contentType !== "phrases" && (
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">Quiz Type</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setQuizType("word-to-translation")}
-                    className={`p-3 rounded-xl text-sm font-medium transition-all ${
-                      quizType === "word-to-translation"
-                        ? "bg-blue-500 text-white"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    }`}
-                  >
-                    Word &rarr; Translation
-                  </button>
-                  <button
-                    onClick={() => setQuizType("translation-to-word")}
-                    className={`p-3 rounded-xl text-sm font-medium transition-all ${
-                      quizType === "translation-to-word"
-                        ? "bg-blue-500 text-white"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    }`}
-                  >
-                    Translation &rarr; Word
-                  </button>
-                </div>
-              </div>
-            )}
 
             <div>
               <label className="text-sm font-medium text-gray-700 mb-2 block">
@@ -340,26 +280,14 @@ export function QuizMode({ deviceId, onClose }: QuizModeProps) {
 
         {/* Question */}
         <div className="text-center mb-6">
-          {currentQuestion.isPhraseBlank ? (
-            <>
-              <p className="text-sm text-gray-500 mb-2">Fill in the blank:</p>
-              <h2 className="text-2xl font-bold text-gray-900">
-                {currentQuestion.blankDisplay}
-              </h2>
-              <span className="inline-block mt-2 px-2 py-0.5 text-[10px] font-medium rounded bg-teal-50 text-teal-600">phrase</span>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-gray-500 mb-2">
-                {quizType === "word-to-translation" ? "What does this mean?" : "What's the English word?"}
-              </p>
-              <h2 className="text-2xl font-bold text-gray-900">
-                {quizType === "word-to-translation"
-                  ? currentQuestion.word.word
-                  : currentQuestion.word.translation}
-              </h2>
-            </>
-          )}
+          <p className="text-sm text-gray-500 mb-2">
+            {quizType === "word-to-translation" ? "What does this mean?" : "What's the English word?"}
+          </p>
+          <h2 className="text-2xl font-bold text-gray-900">
+            {quizType === "word-to-translation"
+              ? currentQuestion.word.word
+              : currentQuestion.word.translation}
+          </h2>
         </div>
 
         {/* Options */}
@@ -402,7 +330,7 @@ export function QuizMode({ deviceId, onClose }: QuizModeProps) {
         )}
 
         {/* Pronunciation practice */}
-        {selectedAnswer !== null && !currentQuestion.isPhraseBlank && isSpeechRecognitionSupported() && (
+        {selectedAnswer !== null && isSpeechRecognitionSupported() && (
           <div className="mt-3 text-center">
             <button
               onClick={handleSpeak}

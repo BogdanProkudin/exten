@@ -6,7 +6,6 @@ interface Achievement {
   name: string;
   description: string;
   icon: string;
-  xp: number;
 }
 
 interface AchievementToastProps {
@@ -221,30 +220,6 @@ export function AchievementToast({ achievement, onClose }: AchievementToastProps
             </div>
           </div>
 
-          {/* XP badge — bottom right, bounces in */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              marginTop: "12px",
-            }}
-          >
-            <span
-              style={{
-                fontSize: "12px",
-                fontFamily: FONT,
-                fontWeight: 700,
-                color: "#6366f1",
-                background: "#eef2ff",
-                border: "1px solid #c7d2fe",
-                padding: "4px 10px",
-                borderRadius: "10px",
-                animation: "xpPop 400ms cubic-bezier(0.34, 1.56, 0.64, 1.0) 0.4s both",
-              }}
-            >
-              +{achievement.xp} XP
-            </span>
-          </div>
         </div>
       </div>
     </div>

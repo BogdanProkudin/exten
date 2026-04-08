@@ -13,13 +13,6 @@ import {
   type FSRSState,
 } from "../src/lib/fsrs";
 
-function inferType(text: string): "word" | "phrase" | "sentence" {
-  const wordCount = text.trim().split(/\s+/).length;
-  if (wordCount === 1) return "word";
-  if (wordCount >= 5 || /[.!?,;:'"()]/.test(text)) return "sentence";
-  return "phrase";
-}
-
 export const list = query({
   args: { deviceId: v.string(), paginationOpts: paginationOptsValidator },
   handler: async (ctx, { deviceId, paginationOpts }) => {
@@ -52,16 +45,8 @@ export const stats = query({
         const interval = w.intervalDays ?? (w.status === "known" ? 7 : 1);
         return now - w.lastReviewed > interval * dayMs;
       }).length,
-      byType: {
-        words: words.filter((w) => (w.type ?? inferType(w.word)) === "word").length,
-        phrases: words.filter((w) => (w.type ?? inferType(w.word)) === "phrase").length,
-        sentences: words.filter((w) => (w.type ?? inferType(w.word)) === "sentence").length,
-        // Per-type status breakdowns for filtered views
-        wordsLearning: words.filter((w) => (w.type ?? inferType(w.word)) !== "sentence" && w.status === "learning").length,
-        wordsKnown: words.filter((w) => (w.type ?? inferType(w.word)) !== "sentence" && w.status === "known").length,
-        sentencesLearning: words.filter((w) => (w.type ?? inferType(w.word)) === "sentence" && w.status === "learning").length,
-        sentencesKnown: words.filter((w) => (w.type ?? inferType(w.word)) === "sentence" && w.status === "known").length,
-      },
+      wordsLearning: words.filter((w) => w.status === "learning").length,
+      wordsKnown: words.filter((w) => w.status === "known").length,
     };
   },
 });
@@ -71,19 +56,14 @@ export const getReviewWords = query({
     deviceId: v.string(),
     limit: v.optional(v.number()),
     recentlyShownIds: v.optional(v.array(v.string())),
-    typeFilter: v.optional(v.array(v.string())),
+    typeFilter: v.optional(v.array(v.string())), // legacy, ignored
     excludeIds: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, { deviceId, limit, recentlyShownIds, typeFilter, excludeIds }) => {
-    const allWords = await ctx.db
+  handler: async (ctx, { deviceId, limit, recentlyShownIds, excludeIds }) => {
+    let words = await ctx.db
       .query("words")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
       .collect();
-
-    // Filter by type if specified
-    let words = typeFilter
-      ? allWords.filter((w) => typeFilter.includes(w.type ?? inferType(w.word)))
-      : allWords;
 
     // Hard-exclude words already reviewed this page session
     if (excludeIds && excludeIds.length > 0) {
@@ -108,6 +88,12 @@ export const getReviewWords = query({
         if (w.fsrsState === "new") return true;
         // Learning/relearning: always eligible (FSRS handles scheduling)
         if (w.fsrsState === "learning" || w.fsrsState === "relearning") {
+          // Cooldown: skip if reviewed less than 10 minutes ago
+          const TEN_MINUTES = 10 * 60 * 1000;
+          const lastReview = w.fsrsLastReview ?? 0;
+          if (lastReview > 0 && (now - lastReview) < TEN_MINUTES) {
+            return false;
+          }
           return true;
         }
         // Review state: check if past scheduled review date
@@ -148,8 +134,6 @@ export const getReviewWords = query({
         if (w.status === "new") score += 50;
         if (w.status === "learning") score += 25;
       }
-
-      if (w.isHard) score += 30;
 
       // Recently saved bonus
       const minutesSinceSaved = (now - w.addedAt) / (60 * 1000);
@@ -241,7 +225,6 @@ export const getByLemma = query({
       word: found.word,
       translation: found.translation,
       status: found.status,
-      isHard: found.isHard ?? false,
       contexts: found.contexts ?? [],
       reviewCount: found.reviewCount,
       lastReviewed: found.lastReviewed,
@@ -261,7 +244,7 @@ export const add = mutation({
     sourceUrl: v.string(),
     exampleContext: v.optional(v.array(v.string())),
     exampleSource: v.optional(v.string()),
-    type: v.optional(v.union(v.literal("word"), v.literal("phrase"), v.literal("sentence"))),
+    type: v.optional(v.literal("word")),
   },
   handler: async (ctx, { deviceId, word, translation, example, sourceUrl, exampleContext, exampleSource, type }) => {
     if (word.length > 300)
@@ -338,12 +321,11 @@ export const add = mutation({
       difficulty: 1.0,
       forgotCount: 0,
       lemma,
-      isHard: false,
       contexts: [{ sentence: example, url: sourceUrl, timestamp: Date.now() }],
       fsrsState: "new",
       ...(exampleContext && { exampleContext }),
       ...(exampleSource && { exampleSource }),
-      type: type ?? inferType(word),
+      type: "word" as const,
     });
 
     // Track daily progress
@@ -514,45 +496,6 @@ export const search = query({
   },
 });
 
-export const getHardWords = query({
-  args: { deviceId: v.string() },
-  handler: async (ctx, { deviceId }) => {
-    const words = await ctx.db
-      .query("words")
-      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
-      .collect();
-
-    return words
-      .filter((w) => {
-        // FSRS path: difficulty >= 7 on 1-10 scale
-        if (w.fsrsDifficulty != null) {
-          return w.fsrsDifficulty >= 7 || (w.forgotCount ?? 0) >= 3 || w.isHard === true;
-        }
-        // Legacy path
-        return (w.difficulty ?? 1) >= 2 || (w.forgotCount ?? 0) >= 3 || w.isHard === true;
-      })
-      .sort((a, b) => {
-        // Sort by FSRS difficulty when available, else legacy
-        const diffA = a.fsrsDifficulty ?? ((a.difficulty ?? 1) - 1) / 2 * 9 + 1;
-        const diffB = b.fsrsDifficulty ?? ((b.difficulty ?? 1) - 1) / 2 * 9 + 1;
-        if (diffB !== diffA) return diffB - diffA;
-        return (b.forgotCount ?? 0) - (a.forgotCount ?? 0);
-      });
-  },
-});
-
-export const toggleHard = mutation({
-  args: { id: v.id("words"), deviceId: v.string() },
-  handler: async (ctx, { id, deviceId }) => {
-    const word = await ctx.db.get(id);
-    if (!word) return;
-    if (word.deviceId !== deviceId) {
-      throw new Error("Unauthorized: word does not belong to this device");
-    }
-    await ctx.db.patch(id, { isHard: !(word.isHard ?? false) });
-  },
-});
-
 export const addContext = mutation({
   args: {
     id: v.id("words"),
@@ -605,7 +548,7 @@ export const getAllForExport = query({
       word: w.word,
       translation: w.translation,
       status: w.status,
-      type: w.type ?? inferType(w.word),
+      type: "word",
       reviewCount: w.reviewCount ?? 0,
       contexts: w.contexts ?? [],
       createdAt: w.addedAt ?? w._creationTime,
@@ -641,7 +584,7 @@ export const getWordOfTheDay = query({
         const card = cardFromWord(w);
         const R = computeRetrievability(card, now);
         strength = Math.round(R * 100);
-        score = (1 - R) + (w.isHard ? 2 : 0);
+        score = (1 - R);
       } else {
         // Legacy path — canonical formula from src/lib/memory-strength.ts
         const intervalDays = w.intervalDays ?? 1;
@@ -665,7 +608,7 @@ export const getWordOfTheDay = query({
         // Score for word-of-day selection (higher = needs more practice)
         const daysSinceReview = lastReviewed ? (now - lastReviewed) / dayMs : 30;
         const overdue = daysSinceReview / intervalDays;
-        score = overdue + (w.difficulty || 1) + (w.isHard ? 2 : 0);
+        score = overdue + (w.difficulty || 1);
       }
 
       return {
@@ -695,23 +638,17 @@ export const getQuizWords = query({
   args: {
     deviceId: v.string(),
     limit: v.optional(v.number()),
-    typeFilter: v.optional(v.array(v.string())),
+    typeFilter: v.optional(v.array(v.string())), // legacy, ignored
   },
-  handler: async (ctx, { deviceId, limit, typeFilter }) => {
+  handler: async (ctx, { deviceId, limit }) => {
     const allWords = await ctx.db
       .query("words")
       .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
       .collect();
 
-    // Filter to words that have translations, use deterministic "shuffle" based on word hash
     const validWords = allWords
-      .filter((w) => {
-        if (!w.word || !w.translation) return false;
-        if (typeFilter) return typeFilter.includes(w.type ?? inferType(w.word));
-        return true;
-      })
+      .filter((w) => !!(w.word && w.translation))
       .sort((a, b) => {
-        // Deterministic pseudo-shuffle: hash-based ordering using creation time + word
         const hashA = (a._creationTime * 31 + a.word.charCodeAt(0)) % 1000;
         const hashB = (b._creationTime * 31 + b.word.charCodeAt(0)) % 1000;
         return hashA - hashB;
@@ -722,7 +659,6 @@ export const getQuizWords = query({
       _id: w._id,
       word: w.word,
       translation: w.translation,
-      type: w.type ?? inferType(w.word),
     }));
   },
 });
@@ -734,7 +670,7 @@ export const importWord = mutation({
     word: v.string(),
     translation: v.string(),
     status: v.optional(v.union(v.literal("new"), v.literal("learning"), v.literal("known"))),
-    type: v.optional(v.union(v.literal("word"), v.literal("phrase"), v.literal("sentence"))),
+    type: v.optional(v.literal("word")),
   },
   handler: async (ctx, { deviceId, word, translation, status, type }) => {
     const lemma = word.includes(" ") ? word.toLowerCase() : lemmatize(word);
@@ -766,9 +702,8 @@ export const importWord = mutation({
       intervalDays: 1,
       difficulty: 1,
       forgotCount: 0,
-      isHard: false,
       contexts: [],
-      type: type ?? inferType(word),
+      type: "word" as const,
     });
 
     return { imported: true };
@@ -828,7 +763,7 @@ export const backfillTypes = mutation({
     for (const word of words) {
       if (word.type != null) continue; // Already typed
 
-      await ctx.db.patch(word._id, { type: inferType(word.word) });
+      await ctx.db.patch(word._id, { type: "word" });
       updated++;
     }
     return { updated };

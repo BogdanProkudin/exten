@@ -55,7 +55,6 @@ export async function populateFromAsset(): Promise<void> {
       await bulkPut("dictionary", pairs.slice(i, i + CHUNK_SIZE));
     }
 
-    console.log(`[Vocabify] Dictionary populated with ${entries.length} entries`);
   } catch (e) {
     console.error("[Vocabify] Failed to populate dictionary:", e);
   }
