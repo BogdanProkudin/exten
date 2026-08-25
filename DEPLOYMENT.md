@@ -79,7 +79,6 @@ When submitting, CWS may ask you to justify permissions:
 | `translate.googleapis.com` | Translation fallback |
 | `api.datamuse.com` | Word enrichment (synonyms, related words) |
 | `api.dictionaryapi.dev` | Word definitions and phonetics |
-| `www.youtube.com` | YouTube caption enhancement |
 
 ## CI/CD
 

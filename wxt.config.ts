@@ -44,7 +44,6 @@ export default defineConfig({
       "https://api.datamuse.com/*",
       "https://api.dictionaryapi.dev/*",
       "https://api.openai.com/*",
-      "https://www.youtube.com/*",
     ],
   },
 });
