@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vocabify — Privacy Policy</title>
+<style>
+  :root { color-scheme: light dark; --fg:#1f2328; --muted:#59636e; --bg:#fff;
+           --line:#d1d9e0; --code:#f3f4f6; --link:#0969da; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e6edf3; --muted:#9198a1; --bg:#0d1117; --line:#30363d;
+             --code:#161b22; --link:#4493f8; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:2.5rem 1.25rem 4rem; background:var(--bg); color:var(--fg);
+          font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size:1.9rem; line-height:1.25; margin:0 0 .5rem; letter-spacing:-.02em; }
+  h2 { font-size:1.25rem; margin:2.25rem 0 .6rem; padding-bottom:.3rem;
+        border-bottom:1px solid var(--line); letter-spacing:-.01em; }
+  h3 { font-size:1rem; margin:1.5rem 0 .4rem; color:var(--fg); }
+  p, li { color:var(--fg); }
+  ul { padding-left:1.25rem; }
+  li { margin:.35rem 0; }
+  code { background:var(--code); padding:.12em .38em; border-radius:5px;
+          font:0.87em ui-monospace,SFMono-Regular,Menlo,monospace; }
+  a { color:var(--link); }
+  table { border-collapse:collapse; width:100%; margin:.75rem 0; display:block; overflow-x:auto; }
+  th, td { border:1px solid var(--line); padding:.5rem .65rem; text-align:left;
+            font-size:.92rem; vertical-align:top; }
+  th { background:var(--code); font-weight:600; }
+  strong { font-weight:600; }
+</style>
+</head>
+<body>
+<main>
+<h1>Privacy Policy for Vocabify</h1>
+<p><strong>Last updated:</strong> August 24, 2026</p>
+<h2>What Vocabify Does</h2>
+<p>Vocabify is a Chrome extension that helps you learn vocabulary by translating words and sentences you select while browsing, and scheduling spaced-repetition reviews.</p>
+<h2>Data We Collect</h2>
+<ul>
+<li><strong>Saved vocabulary</strong>: Words, phrases and sentences you explicitly choose to save, with their translations, example sentences and review progress.</li>
+<li><strong>Learning statistics</strong>: Review scores, streaks and study session data used to produce your learning insights.</li>
+<li><strong>Device identifier</strong>: A randomly generated ID that associates your data with your device. It is not linked to your identity and requires no account.</li>
+</ul>
+<h2>How Data Is Stored</h2>
+<ul>
+<li>Saved vocabulary and learning statistics are stored on your device and synced to our backend (Convex) so spaced repetition and insights work.</li>
+<li>Translations are cached on your device (IndexedDB) for up to 30 days to avoid repeat lookups. The cache is capped and pruned automatically.</li>
+<li>Your OpenAI API key, if you provide one, is stored <strong>only on your device</strong> (<code>chrome.storage.local</code>). It is never sent to our backend and never leaves your browser except in requests to OpenAI.</li>
+<li>No account or login is required.</li>
+</ul>
+<h2>What Is Sent To Third Parties</h2>
+<p>Vocabify contacts external services only when you actively use a feature. What is sent depends on the feature.</p>
+<h3>Translating a word or sentence</h3>
+<p>When you select text and the translation popup opens, we send:</p>
+<ul>
+<li>the word or sentence you selected;</li>
+<li><strong>the sentence surrounding it on the page</strong>, so the translation matches the intended meaning (for example, &quot;bank&quot; by a river versus a bank that lends money);</li>
+<li><strong>the page title and the site&#x27;s domain name</strong> (for example <code>example.com</code>), as additional context for the same purpose.</li>
+</ul>
+<p>Where that goes depends on your settings:</p>
+<table>
+<tr><th>Service</th><th>When it is used</th><th>What it receives</th></tr>
+<tr><td>OpenAI (<code>api.openai.com</code>)</td><td>When you have entered your own OpenAI API key and Smart Translation is on</td><td>Selected text, surrounding sentence, page title, domain</td></tr>
+<tr><td>Google Translate (<code>translate.googleapis.com</code>)</td><td>Fallback when no key is set, or when OpenAI fails</td><td>Selected text only</td></tr>
+<tr><td>MyMemory (<code>api.mymemory.translated.net</code>)</td><td>Fallback</td><td>Selected text only</td></tr>
+<tr><td>LibreTranslate (<code>libretranslate.com</code>)</td><td>Fallback</td><td>Selected text only</td></tr>
+</table>
+<p>Requests to OpenAI are billed to <strong>your</strong> OpenAI account and are governed by OpenAI&#x27;s own privacy policy: <a href="https://openai.com/policies/privacy-policy">https://openai.com/policies/privacy-policy</a></p>
+<h3>Word details</h3>
+<table>
+<tr><th>Service</th><th>What it receives</th></tr>
+<tr><td>Datamuse (<code>api.datamuse.com</code>)</td><td>The single word, to return synonyms and antonyms</td></tr>
+<tr><td>Free Dictionary API (<code>api.dictionaryapi.dev</code>)</td><td>The single word, to return definitions and pronunciation</td></tr>
+</table>
+<h3>Explain and Simplify (Reading Assistant)</h3>
+<p>These optional features send text to OpenAI through our backend, using <strong>our</strong> API key rather than yours:</p>
+<ul>
+<li><strong>Explain a word</strong>: the word and the sentence it appeared in.</li>
+<li><strong>Simplify this page</strong>: up to 12,000 characters of the visible text of the page you are reading.</li>
+</ul>
+<p>Use them only on pages whose content you are comfortable sending to OpenAI.</p>
+<h3>Pronunciation (text-to-speech)</h3>
+<p>The word or sentence being pronounced is sent to whichever voice engine you have selected: Google Translate TTS (<code>translate.googleapis.com</code>), OpenAI (<code>api.openai.com</code>, using your own key), or your browser&#x27;s built-in voices, which send nothing over the network.</p>
+<h3>YouTube</h3>
+<p>On YouTube, the extension reads subtitle text already present on the page so it can highlight words you are learning. Nothing is sent anywhere for this.</p>
+<h2>Data We Do NOT Collect</h2>
+<ul>
+<li>No personally identifiable information (name, email, address)</li>
+<li>No browsing history, and no page content beyond what is described above</li>
+<li>No health, financial or location data</li>
+<li>No authentication credentials or passwords</li>
+<li>We do not read pages you have added to the excluded-sites list, and the extension never acts on text typed into inputs, password fields or editors</li>
+</ul>
+<h2>Data Sharing</h2>
+<p>We do not sell your data or share it for advertising. Text is sent to the services listed above solely to return a translation, definition or audio clip, and only when you trigger that feature.</p>
+<h2>Data Deletion</h2>
+<ul>
+<li>Removing the extension deletes all data stored on your device, including your API key and the translation cache.</li>
+<li>Data synced to our backend is keyed to your device identifier and is <strong>not</strong> removed automatically when you uninstall. To have it deleted, email the address below with your device identifier, which is shown in Settings.</li>
+</ul>
+<h2>Changes to This Policy</h2>
+<p>Updates will appear here with a new date.</p>
+<h2>Contact</h2>
+<p>Questions about this policy: prokudinbogdan@gmail.com</p>
+</main>
+</body>
+</html>

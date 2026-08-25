@@ -7,7 +7,16 @@
 1. Create a Convex account at [convex.dev](https://www.convex.dev)
 2. Run `npx convex dev` to create and link a project
 3. Set environment variables in the Convex dashboard:
-   - `OPENAI_API_KEY` — Your OpenAI API key (required for AI features)
+   - `OPENAI_API_KEY` — Your OpenAI API key (required for Explain and Simplify)
+
+> Word and sentence translation do **not** use this key. Both run from the
+> extension's background service worker with the key each user enters in
+> Settings → AI Translation, and fall back to the free translation chain when no
+> key is set.
+>
+> `convex/ai.ts` still exports `analyzeSentence`, but nothing calls it any more:
+> the sentence popup now gets its grammar note and key words from the same
+> OpenAI response as the translation.
 
 ### Deploy Backend
 
@@ -57,14 +66,15 @@ When submitting, CWS may ask you to justify permissions:
 | `alarms` | Schedule periodic review reminders |
 | `activeTab` | Read selected text for translation on the current tab |
 | `contextMenus` | Add "Translate with Vocabify" right-click menu |
-| `scripting` | Inject content script for word selection UI |
 | `idle` | Pause review toasts when user is idle |
+| `offscreen` | Play TTS audio in background via offscreen document |
 
 ### Host Permissions
 
 | Host | Justification |
 |------|--------------|
-| `api.mymemory.translated.net` | Free translation API (primary) |
+| `api.openai.com` | Context-aware translation and text-to-speech, using the user's own API key |
+| `api.mymemory.translated.net` | Free translation API (used when no OpenAI key is set) |
 | `libretranslate.com` | Translation fallback |
 | `translate.googleapis.com` | Translation fallback |
 | `api.datamuse.com` | Word enrichment (synonyms, related words) |
