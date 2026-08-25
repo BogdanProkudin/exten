@@ -2,7 +2,9 @@
 // Replaces chrome.storage.local for large/unbounded data.
 
 const DB_NAME = "vocabify-store";
-const DB_VERSION = 1;
+// v2 adds the "translations" store. onupgradeneeded creates any store that is
+// missing, so adding a name here and bumping the version is the whole migration.
+const DB_VERSION = 2;
 
 const STORE_NAMES = [
   "dictionary",
@@ -10,6 +12,7 @@ const STORE_NAMES = [
   "collocations",
   "radar",
   "settings",
+  "translations",
 ] as const;
 
 export type StoreName = (typeof STORE_NAMES)[number];

@@ -1,4 +1,5 @@
 import { splitSentences } from "./sentence-split";
+import { isEditableElement } from "./editable-guard";
 
 // --- Types ---
 
@@ -45,15 +46,6 @@ function isInsideSkipTag(el: Element): boolean {
     cur = cur.parentElement;
   }
   return false;
-}
-
-function isEditableElement(el: Element): boolean {
-  if ((el as HTMLElement).isContentEditable) return true;
-  const tag = el.tagName?.toLowerCase();
-  if (tag === "input" || tag === "textarea") return true;
-  return el.closest(
-    "[contenteditable], [contenteditable='true'], .CodeMirror, .monaco-editor, .ace_editor, [role='textbox']",
-  ) !== null;
 }
 
 // --- DOM gathering (sync — call while selection is valid) ---

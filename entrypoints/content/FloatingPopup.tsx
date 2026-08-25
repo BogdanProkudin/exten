@@ -10,7 +10,7 @@ import { shouldShowTip, markTipSeen, dismissTipForever, incrementCounter } from 
 import { lemmatize } from "../../src/lib/lemmatize";
 import { computeStrength } from "../../src/lib/memory-strength";
 import { getWordEnrichment, type WordEnrichment } from "../../src/lib/word-enrichment";
-import { getAITranslator } from "../../src/lib/ai-translator";
+import type { AiTranslation } from "../../src/lib/openai-translate";
 
 interface SavedWordData {
   _id: string;
@@ -34,6 +34,8 @@ interface Achievement {
 interface FloatingPopupProps {
   word: string;
   position: { x: number; y: number; placeAbove?: boolean };
+  /** Sentence the word was selected in — captured while the selection was live. */
+  contextSentence?: string;
   onClose: () => void;
   vocabLemmas?: Set<string>;
   onSaved?: (lemma: string) => void;
@@ -56,8 +58,10 @@ function friendlyError(raw: string): string {
   return "Something went wrong. Try again.";
 }
 
-export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, onAchievement }: FloatingPopupProps) {
+export function FloatingPopup({ word, position, contextSentence = "", onClose, vocabLemmas, onSaved, onAchievement }: FloatingPopupProps) {
   const [translation, setTranslation] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AiTranslation | null>(null);
+  const [aiExpanded, setAiExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [errorShake, setErrorShake] = useState(false);
@@ -194,83 +198,46 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
     setLoading(true);
     setError(null);
     setTranslation(null);
+    setAiResult(null);
 
     try {
-      // Try AI translation first if enabled and configured
-      const aiTranslator = await getAITranslator();
-      if (aiTranslator) {
-        const settings = await chrome.storage.sync.get(['enableSmartTranslation']);
-        
-        if (settings.enableSmartTranslation !== false) {
-          try {
-            const context = aiTranslator.getTranslationContext(word, document.body.innerText.slice(0, 500));
-            const fullContext = {
-              sourceText: word,
-              surroundingText: context.surroundingText || '',
-              ...context,
-              domain: context.domain || window.location.hostname,
-              contentType: context.contentType || 'article',
-              userLevel: context.userLevel || 'B1',
-              targetLanguage: context.targetLanguage || 'ru',
-              sourceLanguage: 'en'
-            };
+      // The background worker decides between OpenAI and the free chain — a
+      // content script cannot reach api.openai.com under Manifest V3.
+      const res = await chrome.runtime.sendMessage({
+        type: "AI_TRANSLATE",
+        word,
+        sentence: contextSentence,
+        pageTitle: document.title,
+        url: window.location.href,
+      });
 
-            const smartTranslation = await aiTranslator.translateSmart(word, fullContext);
-            
-            if (smartTranslation && smartTranslation.mainTranslation) {
-              let enhancedTranslation = smartTranslation.mainTranslation;
-              
-              if (smartTranslation.alternativeTranslations.length > 0) {
-                enhancedTranslation += ` (${smartTranslation.alternativeTranslations.slice(0, 2).join(', ')})`;
-              }
-              
-              if (smartTranslation.partOfSpeech) {
-                enhancedTranslation += ` [${smartTranslation.partOfSpeech}]`;
-              }
-
-              setTranslation(enhancedTranslation);
-              
-              // Create enhanced enrichment
-              const enhancedEnrichment: WordEnrichment = {
-                phonetic: smartTranslation.pronunciation || '',
-                definitions: smartTranslation.contextualUsage.examples.map((example) => ({
-                  partOfSpeech: smartTranslation.partOfSpeech || 'unknown',
-                  definition: smartTranslation.contextualUsage.explanation || example
-                })),
-                synonyms: smartTranslation.learningTips.similarWords,
-                antonyms: []
-              };
-              
-              setEnrichment(enhancedEnrichment);
-              setLoading(false);
-              return;
-            }
-          } catch (aiError) {
-            console.debug('AI translation failed, using fallback:', aiError);
-          }
-        }
-      }
-
-      // Fallback to regular translation
-      const res = await chrome.runtime.sendMessage({ type: "TRANSLATE_WORD", word });
-      if (res?.success) {
-        setTranslation(res.translation);
-        // Fetch enrichment (fire-and-forget)
-        getWordEnrichment(word).then(setEnrichment).catch(() => {});
-      } else {
-        const msg = res?.error || "Translation failed";
-        setError(friendlyError(msg));
-        setErrorShake(true);
+      if (!res?.success) {
+        // The model decided this is not English. Say so plainly instead of
+        // showing an invented translation for a word we cannot handle.
+        setError(res?.notEnglish ? "That doesn't look like English." : friendlyError(res?.error || "Translation failed"));
+        setErrorShake(!res?.notEnglish);
         setTimeout(() => setErrorShake(false), 400);
+        return;
       }
-    } catch (error) {
+
+      if (res.source === "ai" && res.result) {
+        const ai = res.result as AiTranslation;
+        setAiResult(ai);
+        setTranslation(ai.translation);
+      } else {
+        setTranslation(res.translation);
+      }
+
+      // Synonyms/antonyms come from the free dictionary APIs either way.
+      getWordEnrichment(word).then(setEnrichment).catch(() => {});
+    } catch {
       setError("Translation failed");
       setErrorShake(true);
       setTimeout(() => setErrorShake(false), 400);
     } finally {
       setLoading(false);
     }
-  }, [word, mode]);
+  }, [word, mode, contextSentence]);
 
   useEffect(() => {
     fetchTranslation();
@@ -1332,10 +1299,90 @@ export function FloatingPopup({ word, position, onClose, vocabLemmas, onSaved, o
                   <path d="m12 5 7 7-7 7" />
                 </svg>
               </div>
-              <p style={{ margin: 0, fontSize: "15px", fontWeight: 500, color: "#1e1b4b", lineHeight: 1.5, flex: 1 }}>
-                {translation}
-              </p>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
+                  <p style={{ margin: 0, fontSize: "15px", fontWeight: 500, color: "#1e1b4b", lineHeight: 1.5 }}>
+                    {translation}
+                  </p>
+                  {aiResult?.partOfSpeech && (
+                    <span style={{
+                      fontSize: "10px", fontWeight: 600, color: "#6366f1",
+                      background: "rgba(99,102,241,0.09)", borderRadius: "6px",
+                      padding: "2px 6px", textTransform: "lowercase" as const,
+                      letterSpacing: "0.02em", whiteSpace: "nowrap" as const,
+                    }}>
+                      {aiResult.partOfSpeech}
+                    </span>
+                  )}
+                </div>
+                {aiResult && aiResult.alternatives.length > 0 && (
+                  <p style={{ margin: "3px 0 0", fontSize: "12px", color: "#6b7280", lineHeight: 1.4 }}>
+                    also: {aiResult.alternatives.join(", ")}
+                  </p>
+                )}
+              </div>
             </div>
+
+            {/* ── In this context (AI) ── */}
+            {aiResult?.contextMeaning && (
+              <div style={{
+                marginTop: "-6px", marginBottom: "14px",
+                padding: "10px 12px",
+                background: "linear-gradient(135deg, rgba(254,249,235,0.85) 0%, rgba(254,243,226,0.6) 100%)",
+                border: "1px solid rgba(180,120,20,0.09)",
+                borderRadius: "12px",
+                animation: "sentenceFadeIn 300ms cubic-bezier(0.34, 1.56, 0.64, 1.0) 160ms both",
+              }}>
+                <span style={{
+                  display: "block", marginBottom: "4px",
+                  fontSize: "10px", fontWeight: 600, color: "#92400e",
+                  textTransform: "uppercase" as const, letterSpacing: "0.06em",
+                }}>
+                  In this context
+                </span>
+                <p style={{ margin: 0, fontSize: "12.5px", color: "#78350f", lineHeight: 1.5 }}>
+                  {aiResult.contextMeaning}
+                </p>
+
+                {aiResult.example && (
+                  <>
+                    <button
+                      onClick={() => setAiExpanded(!aiExpanded)}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        fontSize: "10px", fontWeight: 600, color: "#a16207",
+                        display: "flex", alignItems: "center", gap: "6px",
+                        padding: "6px 0 0", textTransform: "uppercase" as const,
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      <span style={{
+                        transform: aiExpanded ? "rotate(90deg)" : "rotate(0)",
+                        transition: "transform 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+                        display: "inline-block", fontSize: "8px",
+                      }}>&#9654;</span>
+                      Example
+                    </button>
+                    {aiExpanded && (
+                      <div style={{
+                        marginTop: "4px", paddingTop: "6px",
+                        borderTop: "1px solid rgba(180,120,20,0.12)",
+                        animation: "fadeInUp 200ms cubic-bezier(0.34, 1.56, 0.64, 1.0) both",
+                      }}>
+                        <p style={{ margin: 0, fontSize: "12.5px", color: "#78350f", lineHeight: 1.5, fontStyle: "italic" }}>
+                          {aiResult.example}
+                        </p>
+                        {aiResult.exampleTranslation && (
+                          <p style={{ margin: "3px 0 0", fontSize: "12px", color: "#a16207", lineHeight: 1.45 }}>
+                            {aiResult.exampleTranslation}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
             {/* ── Related Words (enrichment) ── */}
             {enrichment && (enrichment.synonyms.length > 0 || enrichment.antonyms.length > 0) && (

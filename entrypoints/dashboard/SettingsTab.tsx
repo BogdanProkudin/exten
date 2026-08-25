@@ -36,6 +36,11 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  // --- AI translation ---
+  const [smartTranslation, setSmartTranslation] = useState(true);
+  const [copiedId, setCopiedId] = useState(false);
+  const aiActive = smartTranslation && openaiApiKey.trim().length > 0;
+
   // --- Features ---
   const [readingAssistantEnabled, setReadingAssistantEnabled] = useState(true);
   const [radarEnabled, setRadarEnabled] = useState(true);
@@ -53,8 +58,9 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
       "showReviewTimer", "reviewMode",
       "targetLang", "userLevel", "theme",
       "readingAssistantEnabled", "radarEnabled", "youtubeSubtitlesEnabled",
-      "excludedDomains",
+      "excludedDomains", "enableSmartTranslation",
     ]).then((data: Record<string, unknown>) => {
+      if (data.enableSmartTranslation !== undefined) setSmartTranslation(data.enableSmartTranslation as boolean);
       if (data.reviewIntervalMinutes) setReviewInterval(data.reviewIntervalMinutes as number);
       if (data.maxToastsPerDay) setMaxToastsPerDay(data.maxToastsPerDay as number);
       if (data.dailyGoalXp) setDailyGoalWords(Math.round((data.dailyGoalXp as number) / 10));
@@ -179,6 +185,53 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
         </Field>
       </Section>
 
+      {/* AI Translation */}
+      <Section
+        title="AI Translation"
+        icon={<><path d="M12 3v2m0 14v2M5.6 5.6l1.4 1.4m10 10l1.4 1.4M3 12h2m14 0h2M5.6 18.4L7 17m10-10l1.4-1.4" /><circle cx="12" cy="12" r="3.5" /></>}
+        iconColor="#f59e0b"
+        delay="100ms"
+      >
+        <Toggle
+          label="Smart translation"
+          description="Explain the word using the sentence it appeared in"
+          checked={smartTranslation}
+          onChange={(v) => {
+            setSmartTranslation(v);
+            chrome.storage.sync.set({ enableSmartTranslation: v });
+          }}
+        />
+        <Field label="OpenAI API key">
+          <input
+            type="password"
+            value={openaiApiKey}
+            onChange={(e) => {
+              setOpenaiApiKey(e.target.value);
+              chrome.storage.local.set({ openaiApiKey: e.target.value.trim() });
+            }}
+            placeholder="sk-..."
+            className="settings-input"
+          />
+          <p className="text-[10px] text-gray-400 mt-1.5">
+            Stored on this device only and sent directly to OpenAI. Also used for OpenAI voices.
+            Roughly $1 per 10,000 lookups on gpt-4.1-nano.
+          </p>
+        </Field>
+        <div className="flex items-center gap-2 text-[11px]">
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full"
+            style={{ background: aiActive ? "#10b981" : "#d1d5db" }}
+          />
+          <span className={aiActive ? "text-emerald-600" : "text-gray-400"}>
+            {aiActive
+              ? "AI translation active"
+              : openaiApiKey.trim()
+                ? "Smart translation is off — using free translation"
+                : "No key — using free translation"}
+          </span>
+        </div>
+      </Section>
+
       {/* Voice & Pronunciation */}
       <Section
         title="Voice & Pronunciation"
@@ -230,19 +283,11 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
                 ))}
               </div>
             </Field>
-            <Field label="API Key">
-              <input
-                type="password"
-                value={openaiApiKey}
-                onChange={(e) => {
-                  setOpenaiApiKey(e.target.value);
-                  chrome.storage.local.set({ openaiApiKey: e.target.value });
-                }}
-                placeholder="sk-..."
-                className="settings-input"
-              />
-              <p className="text-[10px] text-gray-400 mt-1.5">Used for TTS and AI features. Stored locally only.</p>
-            </Field>
+            {!openaiApiKey.trim() && (
+              <p className="text-[11px] text-amber-600">
+                Add your OpenAI API key in the AI Translation section above to use these voices.
+              </p>
+            )}
           </>
         )}
 
@@ -428,6 +473,35 @@ export function SettingsTab({ deviceId }: SettingsTabProps) {
           </div>
         </div>
       </Section>
+
+      {/* Your data — the device ID is the only handle on backend data, so the
+          privacy policy's deletion request depends on the user being able to
+          read it. */}
+      <div className="pt-3 border-t border-gray-100/60 stats-enter" style={{ animationDelay: "270ms" }}>
+        <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">
+          Device ID
+        </label>
+        <div className="flex items-center gap-2">
+          <code className="text-[11px] text-gray-500 bg-gray-50 rounded px-2 py-1 flex-1 truncate select-all">
+            {deviceId || "…"}
+          </code>
+          <button
+            onClick={() => {
+              if (!deviceId) return;
+              navigator.clipboard.writeText(deviceId).then(() => {
+                setCopiedId(true);
+                setTimeout(() => setCopiedId(false), 1500);
+              }).catch(() => {});
+            }}
+            className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors cursor-pointer shrink-0"
+          >
+            {copiedId ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <p className="text-[10px] text-gray-400 mt-1.5">
+          Identifies your data on our backend. Include it if you ask us to delete your data.
+        </p>
+      </div>
 
       {/* Danger zone */}
       <div className="pt-3 border-t border-gray-100/60 stats-enter" style={{ animationDelay: "280ms" }}>

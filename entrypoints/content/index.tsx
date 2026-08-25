@@ -10,25 +10,79 @@ import { YouTubeOverlay } from "./YouTubeOverlay";
 import { analyzePageContent, type PageAnalysisResult, type VocabCache } from "../../src/lib/page-analyzer";
 import { isYouTubePage, isYouTubeVideoPage, getVideoElement } from "../../src/lib/youtube";
 import { getFromStore, putInStore } from "../../src/lib/indexed-db";
+import { isEditableElement, isSelectionInEditable } from "../../src/lib/editable-guard";
+import { classifySelection } from "../../src/lib/language-guard";
+import { decideSelectionPopup } from "../../src/lib/selection-popup";
+import { extractSentence } from "../../src/lib/text-utils";
 import "../../src/global.css";
 
-function isEditableTarget(el: HTMLElement): boolean {
-  const tag = el.tagName?.toLowerCase();
-  if (tag === "input" || tag === "textarea") return true;
-  if (el.isContentEditable) return true;
+// Shadow hosts we render into. Events originating inside them are ours, not the page's.
+const VOCABIFY_HOSTS = new Set([
+  "vocabify-popup",
+  "vocabify-sentence",
+  "vocabify-badge",
+  "vocabify-panel",
+  "vocabify-simplify",
+  "vocabify-toast",
+  "vocabify-achievement",
+  "vocabify-confirm",
+]);
 
-  // Check for common code editors by walking up the tree
-  const editorSelectors = [
-    "[contenteditable]",
-    "[contenteditable='true']",
-    ".CodeMirror",
-    ".monaco-editor",
-    ".ace_editor",
-    "[role='textbox']",
-    "[role='combobox']",
-  ];
+function isFromVocabifyUi(e: Event): boolean {
+  return e
+    .composedPath()
+    .some((node) => VOCABIFY_HOSTS.has((node as Element).tagName?.toLowerCase()));
+}
 
-  return editorSelectors.some((sel) => el.closest(sel) !== null);
+/** Characters of surrounding text considered when locating the sentence. */
+const CONTEXT_WINDOW = 600;
+
+/**
+ * Character offset of the selection start within `block`'s text content.
+ * Returns -1 when it cannot be determined.
+ *
+ * Needed because a word usually appears more than once in a paragraph. Locating
+ * it with indexOf would always pick the first occurrence, so selecting the
+ * river "bank" in a paragraph that opens with the financial one would send the
+ * wrong sentence — and the wrong sense is exactly what this feature exists to
+ * get right.
+ */
+function selectionOffsetWithin(block: Element, selection: Selection): number {
+  try {
+    const range = selection.getRangeAt(0);
+    const probe = document.createRange();
+    probe.selectNodeContents(block);
+    probe.setEnd(range.startContainer, range.startOffset);
+    return probe.toString().length;
+  } catch {
+    return -1;
+  }
+}
+
+/** The sentence the selection sits in — captured while the selection is still live. */
+function captureContextSentence(selection: Selection, word: string): string {
+  const anchor = selection.anchorNode?.parentElement;
+  if (!anchor) return "";
+  const block = anchor.closest("p, li, blockquote, td, h1, h2, h3, h4, h5, h6, div");
+  if (!block) return "";
+
+  const full = block.textContent || "";
+
+  // `closest` often lands on a page-sized <div>, and extractSentence makes ~20
+  // full passes over whatever it is given. Narrow to a window around the
+  // selected occurrence so a large container costs the same as a paragraph.
+  let at = selectionOffsetWithin(block, selection);
+  if (at < 0 || at > full.length) at = full.toLowerCase().indexOf(word.toLowerCase());
+
+  const windowed = at < 0
+    ? full.slice(0, CONTEXT_WINDOW * 2)
+    : full.slice(Math.max(0, at - CONTEXT_WINDOW), at + word.length + CONTEXT_WINDOW);
+
+  try {
+    return extractSentence(windowed, word);
+  } catch {
+    return "";
+  }
 }
 
 // Extract readable sentences from page for pattern analysis
@@ -136,6 +190,17 @@ export default defineContentScript({
     let popupUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let sentenceUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let popupCreatedAt = 0;
+    /**
+     * Text the open selection popup is showing, or null when none is open.
+     * Lets a changed selection replace the popup while a repeat of the same
+     * selection leaves it alone (no flicker, no second paid lookup).
+     */
+    let openPopupText: string | null = null;
+
+    function closeSelectionPopups() {
+      closeSelectionPopups();
+      openPopupText = null;
+    }
     let toastUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let panelUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let simplifyUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
@@ -319,7 +384,11 @@ export default defineContentScript({
     }
     
     // Helper to show popup at a specific position
-    async function showPopupAt(word: string, position: { x: number; y: number }) {
+    async function showPopupAt(
+      word: string,
+      position: { x: number; y: number },
+      contextSentence = "",
+    ) {
       // Ensure vocab cache is loaded before showing popup
       if (!vocabCacheReady) await vocabCachePromise;
 
@@ -327,6 +396,7 @@ export default defineContentScript({
         popupUi.remove();
         popupUi = null;
       }
+      openPopupText = word.replace(/\s+/g, " ").trim();
       
       const scrollX = window.scrollX;
       const scrollY = window.scrollY;
@@ -345,9 +415,11 @@ export default defineContentScript({
             <FloatingPopup
               word={word.toLowerCase()}
               position={{ x: position.x + scrollX, y: position.y + scrollY }}
+              contextSentence={contextSentence}
               onClose={() => {
                 popupUi?.remove();
                 popupUi = null;
+                openPopupText = null;
               }}
               vocabLemmas={vocabCacheLemmas ?? undefined}
               onSaved={(lemma) => {
@@ -391,13 +463,17 @@ export default defineContentScript({
 
     // --- Word Selection Popup ---
     document.addEventListener("mouseup", async (e) => {
-      // Ignore mouseup originating from inside vocabify elements
-      const target = e.target as HTMLElement;
-      const tag = target.tagName?.toLowerCase();
-      if (tag === "vocabify-popup" || tag === "vocabify-sentence" || tag === "vocabify-badge" || tag === "vocabify-panel" || tag === "vocabify-simplify") return;
+      // Only act on a real user gesture. A page can build a Selection and
+      // dispatch a synthetic mouseup itself, and every popup that opens fires a
+      // paid AI_TRANSLATE against the user's own OpenAI key — so without this
+      // a hostile page can run up their bill in a loop.
+      if (!e.isTrusted) return;
 
-      // Suppress on editable elements
-      if (isEditableTarget(target)) return;
+      // Ignore mouseup originating from inside vocabify elements
+      if (isFromVocabifyUi(e)) return;
+
+      // Suppress when the click lands in a field the user types into
+      if (isEditableElement(e.target as HTMLElement)) return;
 
       // Check site exclusion
       if (isSiteExcluded()) return;
@@ -406,29 +482,27 @@ export default defineContentScript({
       await new Promise((r) => setTimeout(r, 10));
 
       const selection = window.getSelection();
-      const text = selection?.toString().trim();
+      if (!selection || selection.isCollapsed) return;
 
-      if (!text || text.length < 2 || text.length > 300) return;
+      // The pointer can be released outside the field the selection lives in,
+      // and rich-text editors keep the caret in a contenteditable subtree.
+      if (isSelectionInEditable(selection)) return;
 
-      const wordCount = text.split(/\s+/).length;
-      const isSingleWord = !text.includes(" ") && /^[a-zA-Z'-]+$/.test(text);
-      const isSentence = text.includes(" ") && wordCount > 1 && text.length <= 300;
+      // English-only: reject Russian, CJK, Greek, Arabic and other scripts.
+      // A new selection replaces whatever is open — bailing here is what made
+      // growing a word selection into a sentence do nothing.
+      const decision = decideSelectionPopup(selection.toString(), openPopupText);
+      if (decision.action !== "show") return;
 
-      // Determine which popup to show
-      let showSentencePopup = false;
+      const text = decision.text;
+      const showSentencePopup = decision.kind === "phrase";
 
-      if (isSingleWord) {
-        // Single word → FloatingPopup (below)
-      } else if (isSentence) {
-        showSentencePopup = true;
-      } else {
-        return;
-      }
+      // Capture the surrounding sentence now, while the selection is still live.
+      // The AI translator uses it to disambiguate the word's sense.
+      const contextSentence = showSentencePopup ? "" : captureContextSentence(selection, text);
 
-      // Don't re-create if popup is already open
-      if (popupUi || sentenceUi) return;
-
-      if (!selection) return;
+      closeSelectionPopups();
+      openPopupText = text;
 
       // Position relative to the selected word using document coordinates
       const range = selection.getRangeAt(0);
@@ -467,12 +541,14 @@ export default defineContentScript({
                 onClose={() => {
                   sentenceUi?.remove();
                   sentenceUi = null;
+                  openPopupText = null;
                 }}
                 vocabLemmas={vocabCacheLemmas ?? undefined}
                 onWordClick={(word) => {
                   // Close sentence popup, open FloatingPopup for the clicked word
                   sentenceUi?.remove();
                   sentenceUi = null;
+                  openPopupText = word.toLowerCase();
                   showPopupAt(word.toLowerCase(), {
                     x: position.x + currentPopupWidth / 2,
                     y: position.y,
@@ -507,9 +583,11 @@ export default defineContentScript({
             <FloatingPopup
               word={text.toLowerCase()}
               position={position}
+              contextSentence={contextSentence}
               onClose={() => {
                 popupUi?.remove();
                 popupUi = null;
+                openPopupText = null;
               }}
               vocabLemmas={vocabCacheLemmas ?? undefined}
               onSaved={(lemma) => {
@@ -544,29 +622,35 @@ export default defineContentScript({
         if (tagLower === "vocabify-popup") return;
         popupUi.remove();
         popupUi = null;
+        openPopupText = null;
       }
       if (sentenceUi) {
         if (tagLower === "vocabify-sentence") return;
         sentenceUi.remove();
         sentenceUi = null;
+        openPopupText = null;
       }
     });
 
     // --- Context menu & keyboard shortcut handlers ---
     chrome.runtime.onMessage.addListener((message) => {
       if (message.type === "CONTEXT_MENU_TRANSLATE" && message.word) {
+        const word = message.word as string;
+        if (classifySelection(word) === "reject") return;
+
         // Get cursor position from last known mouse position
         const selection = window.getSelection();
         if (selection && selection.rangeCount > 0) {
           const range = selection.getRangeAt(0);
           const rect = range.getBoundingClientRect();
-          showPopupAt(message.word.toLowerCase(), {
-            x: rect.left + rect.width / 2,
-            y: rect.bottom + 6,
-          });
+          showPopupAt(
+            word.toLowerCase(),
+            { x: rect.left + rect.width / 2, y: rect.bottom + 6 },
+            captureContextSentence(selection, word),
+          );
         } else {
           // Fallback: center of viewport
-          showPopupAt(message.word.toLowerCase(), {
+          showPopupAt(word.toLowerCase(), {
             x: window.innerWidth / 2,
             y: window.innerHeight / 3,
           });
@@ -577,15 +661,19 @@ export default defineContentScript({
       } else if (message.type === "KEYBOARD_TRANSLATE") {
         // Translate currently selected text
         const selection = window.getSelection();
-        const text = selection?.toString().trim();
-        if (text && text.length >= 2 && text.length <= 40 && /^[a-zA-Z'-]+$/.test(text)) {
-          const range = selection!.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          showPopupAt(text.toLowerCase(), {
-            x: rect.left + rect.width / 2,
-            y: rect.bottom + 6,
-          });
-        }
+        if (!selection || selection.isCollapsed) return;
+        if (isSelectionInEditable(selection)) return;
+
+        const text = selection.toString().trim();
+        if (classifySelection(text) !== "word") return;
+
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        showPopupAt(
+          text.toLowerCase(),
+          { x: rect.left + rect.width / 2, y: rect.bottom + 6 },
+          captureContextSentence(selection, text),
+        );
       }
     });
 
@@ -642,6 +730,10 @@ export default defineContentScript({
       if (message.type !== "SHOW_REVIEW" || !message.word) return;
 
       if (toastUi) {
+        // Unregister before dropping the reference, or the old fullscreen
+        // listener survives and re-appends the removed toast on the next
+        // fullscreenchange.
+        stopFullscreenTracking();
         toastUi.remove();
         toastUi = null;
       }
@@ -653,6 +745,13 @@ export default defineContentScript({
         name: "vocabify-toast",
         position: "overlay",
         zIndex: 2147483647,
+        // Keystrokes typed into the challenge must not reach the host page.
+        // Without this, YouTube reads them as player shortcuts (f = fullscreen,
+        // t = theater, k = pause) and the answer box is unusable.
+        isolateEvents: true,
+        // A shadow host under <body> is not rendered while a video is
+        // fullscreen — only the fullscreen element's subtree is.
+        anchor: () => document.fullscreenElement ?? document.body,
         onMount(container) {
           container.style.fontSize = "16px";
           const root = ReactDOM.createRoot(container);
@@ -660,6 +759,7 @@ export default defineContentScript({
             <ReviewToast
               word={message.word}
               onClose={() => {
+                stopFullscreenTracking();
                 toastUi?.remove();
                 toastUi = null;
                 document.dispatchEvent(new CustomEvent("vocabify-toast-visibility", { detail: { visible: false } }));
@@ -676,8 +776,26 @@ export default defineContentScript({
       }).then((ui) => {
         toastUi = ui;
         toastUi.mount();
+        trackFullscreenFor(ui);
       });
     });
+
+    // Entering or leaving fullscreen mid-review moves the rendering root, so the
+    // already-mounted toast has to follow it or it silently disappears.
+    let stopFullscreenTracking = () => {};
+    ctx.onInvalidated(() => stopFullscreenTracking());
+
+    function trackFullscreenFor(ui: { shadowHost: HTMLElement }) {
+      const reparent = () => {
+        const host = document.fullscreenElement ?? document.body;
+        if (ui.shadowHost.parentElement !== host) host.appendChild(ui.shadowHost);
+      };
+      document.addEventListener("fullscreenchange", reparent);
+      stopFullscreenTracking = () => {
+        document.removeEventListener("fullscreenchange", reparent);
+        stopFullscreenTracking = () => {};
+      };
+    }
 
     // --- Reading Assistant ---
     async function runPageAnalysis() {

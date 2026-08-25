@@ -9,6 +9,7 @@ import { shouldShowTip, markTipSeen, dismissTipForever, incrementCounter } from 
 import { isSpeechRecognitionSupported, startListening, type SpeechResult } from "../../src/lib/speech-recognition";
 import { buildChallenge, resultToFSRSRating, type Challenge, type ChallengeType } from "../../src/lib/review-challenge";
 import { isAcceptableAnswer } from "../../src/lib/answer-match";
+import { installKeyShield, shadowHostOf, activeElementIn } from "../../src/lib/key-shield";
 import { speak } from "../../src/lib/tts";
 
 interface ReviewWord {
@@ -42,6 +43,8 @@ const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica 
 
 export function ReviewToast({ word, onClose }: ReviewToastProps) {
   const mountedRef = useRef(true);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const handlerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
   const [revealed, setRevealed] = useState(false);
@@ -165,9 +168,39 @@ export function ReviewToast({ word, onClose }: ReviewToastProps) {
     }
   }, [isListening, word.word]);
 
+  // All key handling runs inside the shield (see src/lib/key-shield.ts).
+  //
+  // The shield intercepts at window-capture and cuts the event off from the
+  // page, which is the only way to stop YouTube reading a typed answer as
+  // player shortcuts. That also cuts off listeners deeper in the path, so the
+  // toast's own shortcuts cannot live on an element — they run here.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const card = cardRef.current;
+      if (!card) return;
+
+      // Focus trap: Tab must not walk out of the modal.
+      if (e.key === "Tab") {
+        const items = Array.from(
+          card.querySelectorAll<HTMLElement>(
+            'button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((el) => !el.hasAttribute("disabled"));
+        if (items.length === 0) return;
+
+        const active = activeElementIn(card);
+        const first = items[0];
+        const last = items[items.length - 1];
+
+        if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+        return;
+      }
+
       if (e.key === "Escape") { e.preventDefault(); triggerClose(); return; }
+
+      // While the answer box has focus, every other key is part of the answer.
+      const typing = (e.target as HTMLElement)?.tagName?.toLowerCase() === "input";
 
       if (smartMode && challenge) {
         if (smartShowResult) return;
@@ -187,6 +220,7 @@ export function ReviewToast({ word, onClose }: ReviewToastProps) {
         return;
       }
 
+      if (typing) return;
       if (answered) return;
       if (e.key === " " && !revealed) { e.preventDefault(); setRevealed(true); return; }
       if (!revealed) return;
@@ -198,9 +232,49 @@ export function ReviewToast({ word, onClose }: ReviewToastProps) {
       else if (e.key === "ArrowLeft") { e.preventDefault(); handleRatingAnswer(1); }
       else if (e.key === "ArrowRight") { e.preventDefault(); handleRatingAnswer(3); }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+
+    handlerRef.current = onKeyDown;
   }, [answered, revealed, handleBinaryAnswer, handleRatingAnswer, triggerClose, smartMode, challenge, smartShowResult, smartInput, handleSmartResult]);
+
+  // The shield is installed once. Keeping it out of the effect above matters:
+  // `smartInput` is in those deps, so binding the shield there would tear down
+  // and re-add three window listeners on every character the user types.
+  useEffect(() => {
+    return installKeyShield({
+      getHost: () => shadowHostOf(cardRef.current),
+      onKeyDown: (e) => handlerRef.current?.(e),
+    });
+  }, []);
+
+  // Take focus on mount so keystrokes reach the overlay rather than the page.
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    // The answer box carries autoFocus; otherwise focus the card itself.
+    if (!card.querySelector("input:not([disabled])")) card.focus();
+  }, [smartMode, challenge]);
+
+  // The shield only claims events whose path runs through this overlay, so if
+  // focus escapes (pages like YouTube move it on their own) the toast goes
+  // keyboard-dead and its keys start driving the page again. Pull it back.
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+
+    const onFocusOut = (e: FocusEvent) => {
+      const next = e.relatedTarget as Node | null;
+      if (next && card.contains(next)) return; // moving within the modal
+      requestAnimationFrame(() => {
+        if (!mountedRef.current || !cardRef.current) return;
+        if (shadowHostOf(cardRef.current) && activeElementIn(cardRef.current)) return;
+        const input = cardRef.current.querySelector<HTMLElement>("input:not([disabled])");
+        (input ?? cardRef.current).focus();
+      });
+    };
+
+    card.addEventListener("focusout", onFocusOut);
+    return () => card.removeEventListener("focusout", onFocusOut);
+  }, []);
 
   const show = visible && !isClosing;
 
@@ -287,10 +361,14 @@ export function ReviewToast({ word, onClose }: ReviewToastProps) {
 
       {/* Card */}
       <div
+        ref={cardRef}
         role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
         aria-label={`Review: ${word.word}`}
         aria-live="polite"
         style={{
+          outline: "none",
           position: "fixed", top: "50%", left: "50%",
           zIndex: 2147483647, pointerEvents: "auto",
           width: "420px", maxWidth: "92vw",

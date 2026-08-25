@@ -1,10 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-
-interface SentenceAnalysis {
-  grammar: string;
-  simplified: string;
-  vocabulary: { word: string; role: string }[];
-}
+import type { AiSentenceTranslation } from "../../src/lib/openai-translate";
 
 interface SentencePopupProps {
   sentence: string;
@@ -25,12 +20,10 @@ export function SentencePopup({
 }: SentencePopupProps) {
   const [translation, setTranslation] = useState<string | null>(null);
   const [translating, setTranslating] = useState(true);
-  const [aiAnalysis, setAiAnalysis] = useState<SentenceAnalysis | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
+  const [ai, setAi] = useState<AiSentenceTranslation | null>(null);
+  const [notEnglish, setNotEnglish] = useState(false);
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [showAnalysis, setShowAnalysis] = useState(false);
   const [visible, setVisible] = useState(false);
   const [translationError, setTranslationError] = useState(false);
   const [translationKey, setTranslationKey] = useState(0);
@@ -53,25 +46,49 @@ export function SentencePopup({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  // Translate sentence
+  // Translate the sentence as a whole.
+  //
+  // One call to the background worker, which picks OpenAI when a key is set and
+  // falls back to the free chain otherwise. The grammar note and hard words come
+  // back with it, so there is no separate analyze request to pay for or gate.
   useEffect(() => {
+    let cancelled = false;
     setTranslating(true);
     setTranslationError(false);
+    setNotEnglish(false);
+    setAi(null);
+
     chrome.runtime
-      .sendMessage({ type: "TRANSLATE_WORD", word: sentence })
+      .sendMessage({
+        type: "AI_TRANSLATE_SENTENCE",
+        sentence,
+        pageTitle: document.title,
+        url: window.location.href,
+      })
       .then((res) => {
-        if (res?.success) {
+        if (cancelled) return;
+        if (res?.success && res.source === "ai" && res.result) {
+          const result = res.result as AiSentenceTranslation;
+          setAi(result);
+          setTranslation(result.translation);
+        } else if (res?.success) {
           setTranslation(res.translation);
+        } else if (res?.notEnglish) {
+          setNotEnglish(true);
+          setTranslation(null);
         } else {
           setTranslation(null);
           setTranslationError(true);
         }
       })
       .catch(() => {
+        if (cancelled) return;
         setTranslation(null);
         setTranslationError(true);
       })
-      .finally(() => setTranslating(false));
+      .finally(() => { if (!cancelled) setTranslating(false); });
+
+    return () => { cancelled = true; };
   }, [sentence, translationKey]);
 
   function retryTranslation() {
@@ -96,31 +113,6 @@ export function SentencePopup({
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
-  }
-
-  async function runAnalysis() {
-    if (aiLoading || aiAnalysis) return;
-    setAiLoading(true);
-    setAiError(null);
-    setShowAnalysis(true);
-    try {
-      const storage = await chrome.storage.sync.get(["userLevel", "targetLang"]);
-      const res = await chrome.runtime.sendMessage({
-        type: "AI_ANALYZE_SENTENCE",
-        sentence,
-        targetLang: storage.targetLang || "ru",
-        userLevel: storage.userLevel || "B1",
-      });
-      if (res?.success) {
-        setAiAnalysis(res.analysis as SentenceAnalysis);
-      } else {
-        setAiError(res?.error || "Analysis failed");
-      }
-    } catch (e) {
-      setAiError(String(e));
-    } finally {
-      setAiLoading(false);
-    }
   }
 
   function handleWordClick(word: string) {
@@ -292,6 +284,19 @@ export function SentencePopup({
                 />
                 Translating...
               </div>
+            ) : notEnglish ? (
+              <div
+                style={{
+                  padding: "10px 12px",
+                  background: "#fffbeb",
+                  border: "1px solid rgba(180,120,20,0.12)",
+                  borderRadius: "10px",
+                  fontSize: "13px",
+                  color: "#92400e",
+                }}
+              >
+                That doesn't look like English.
+              </div>
             ) : translation ? (
               <div
                 style={{
@@ -403,8 +408,8 @@ export function SentencePopup({
             )}
           </div>
 
-          {/* AI Analysis section */}
-          {showAnalysis && (
+          {/* Learning extras — arrive with the translation, no extra call */}
+          {ai && (ai.grammarNote || ai.simplified || ai.keyWords.length > 0) && (
             <div
               style={{
                 marginBottom: "12px",
@@ -418,7 +423,7 @@ export function SentencePopup({
                 style={{
                   padding: "8px 12px",
                   background: "linear-gradient(135deg, #f8fafc, #f1f5f9)",
-                  borderBottom: aiAnalysis || aiLoading || aiError ? "1px solid #e2e8f0" : "none",
+                  borderBottom: "1px solid #e2e8f0",
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
@@ -427,154 +432,77 @@ export function SentencePopup({
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2a4 4 0 0 0-4 4v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-2V6a4 4 0 0 0-4-4z" />
                 </svg>
-                <span style={{ fontSize: "11px", fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                <span style={{ fontSize: "11px", fontWeight: 600, color: "#475569", textTransform: "uppercase" as const, letterSpacing: "0.04em" }}>
                   Analysis
                 </span>
               </div>
 
-              {aiLoading ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    padding: "14px 12px",
-                    fontSize: "13px",
-                    color: "#94a3b8",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "inline-block",
-                      width: "14px",
-                      height: "14px",
-                      borderRadius: "50%",
-                      border: "2px solid #e2e8f0",
-                      borderTopColor: "#6366f1",
-                      animation: "spin 0.6s linear infinite",
-                    }}
-                  />
-                  Analyzing sentence...
-                </div>
-              ) : aiError ? (
-                <div style={{ padding: "10px 12px", fontSize: "13px", color: "#dc2626" }}>{aiError}</div>
-              ) : aiAnalysis ? (
-                <div style={{ padding: "10px 12px" }}>
-                  {/* Grammar */}
+              <div style={{ padding: "10px 12px" }}>
+                {ai.grammarNote && (
                   <div style={{ marginBottom: "8px" }}>
-                    <div style={{ fontSize: "10px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "3px" }}>
+                    <div style={{ fontSize: "10px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" as const, letterSpacing: "0.04em", marginBottom: "3px" }}>
                       Grammar
                     </div>
-                    <div style={{ fontSize: "13px", color: "#334155", lineHeight: 1.5 }}>{aiAnalysis.grammar}</div>
+                    <div style={{ fontSize: "13px", color: "#334155", lineHeight: 1.5 }}>{ai.grammarNote}</div>
                   </div>
+                )}
 
-                  {/* Simplified */}
-                  {aiAnalysis.simplified && (
-                    <div style={{ marginBottom: "8px" }}>
-                      <div style={{ fontSize: "10px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "3px" }}>
-                        Simplified
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "13px",
-                          color: "#475569",
-                          lineHeight: 1.5,
-                          fontStyle: "italic",
-                          padding: "6px 10px",
-                          background: "#f8fafc",
-                          borderRadius: "6px",
-                          borderLeft: "2px solid #cbd5e1",
-                        }}
-                      >
-                        {aiAnalysis.simplified}
-                      </div>
+                {ai.simplified && (
+                  <div style={{ marginBottom: "8px" }}>
+                    <div style={{ fontSize: "10px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" as const, letterSpacing: "0.04em", marginBottom: "3px" }}>
+                      Simplified
                     </div>
-                  )}
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: "#475569",
+                        lineHeight: 1.5,
+                        fontStyle: "italic",
+                        padding: "6px 10px",
+                        background: "#f8fafc",
+                        borderRadius: "6px",
+                        borderLeft: "2px solid #cbd5e1",
+                      }}
+                    >
+                      {ai.simplified}
+                    </div>
+                  </div>
+                )}
 
-                  {/* Word roles */}
-                  {aiAnalysis.vocabulary.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: "10px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
-                        Word Roles
-                      </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
-                        {aiAnalysis.vocabulary.map((v, i) => (
-                          <span
-                            key={i}
+                {ai.keyWords.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: "10px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" as const, letterSpacing: "0.04em", marginBottom: "4px" }}>
+                      Key words
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column" as const, gap: "4px" }}>
+                      {ai.keyWords.map((kw, i) => (
+                        <div key={i} style={{ fontSize: "12px", lineHeight: 1.45 }}>
+                          <button
+                            onClick={() => handleWordClick(kw.word.toLowerCase())}
                             style={{
-                              fontSize: "11px",
-                              padding: "2px 6px",
+                              background: "#eef2ff",
+                              color: "#4338ca",
+                              border: "none",
                               borderRadius: "4px",
-                              background: "#f1f5f9",
-                              color: "#475569",
-                              fontWeight: 500,
+                              padding: "1px 5px",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              fontFamily: "inherit",
                             }}
                           >
-                            {v.word}
-                            <span style={{ color: "#94a3b8", fontWeight: 400, marginLeft: "2px" }}>
-                              {v.role}
-                            </span>
-                          </span>
-                        ))}
-                      </div>
+                            {kw.word}
+                          </button>
+                          <span style={{ color: "#475569", marginLeft: "6px" }}>{kw.meaning}</span>
+                        </div>
+                      ))}
                     </div>
-                  )}
-                </div>
-              ) : null}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
-          {/* Action row */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              animation: "sentenceFadeIn 300ms ease 200ms both",
-            }}
-          >
-            {!showAnalysis && (
-              <button
-                onClick={runAnalysis}
-                style={{
-                  padding: "8px 14px",
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  borderRadius: "10px",
-                  background: "#fff",
-                  color: "#475569",
-                  border: "1px solid #e2e8f0",
-                  cursor: "pointer",
-                  fontFamily: FONT,
-                  transition: "all 150ms ease",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget).style.borderColor = "#6366f1";
-                  (e.currentTarget).style.color = "#4338ca";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget).style.borderColor = "#e2e8f0";
-                  (e.currentTarget).style.color = "#475569";
-                }}
-                onMouseDown={(e) => {
-                  (e.currentTarget).style.transform = "scale(0.97)";
-                }}
-                onMouseUp={(e) => {
-                  (e.currentTarget).style.transform = "scale(1)";
-                }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-                Analyze
-              </button>
-            )}
-          </div>
         </div>
       </div>
 

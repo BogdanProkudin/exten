@@ -2,6 +2,19 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
 import { getDeviceId } from "../src/lib/device-id";
 import { translateWord } from "../src/lib/translate";
+import { classifySelection } from "../src/lib/language-guard";
+import {
+  translateWithOpenAI,
+  translateSentenceWithOpenAI,
+  OpenAiTranslateError,
+  type AiSentenceTranslation,
+} from "../src/lib/openai-translate";
+import {
+  translationCacheKey,
+  sentenceCacheKey,
+  getCachedTranslation,
+  setCachedTranslation,
+} from "../src/lib/translation-cache";
 import { canMakeAiCall, tryConsumeAiCall } from "../src/lib/pro-gate";
 import type { Id } from "../convex/_generated/dataModel";
 import { getDefaultState, type SchedulerState } from "../src/lib/smart-scheduler";
@@ -30,6 +43,19 @@ async function scheduleNextReview() {
 
 // --- Type-safe message types ---
 type TranslateMessage = { type: "TRANSLATE_WORD"; word: string; lang?: string };
+type AiTranslateSentenceMessage = {
+  type: "AI_TRANSLATE_SENTENCE";
+  sentence: string;
+  pageTitle?: string;
+  url?: string;
+};
+type AiTranslateMessage = {
+  type: "AI_TRANSLATE";
+  word: string;
+  sentence?: string;
+  pageTitle?: string;
+  url?: string;
+};
 type SaveMessage = {
   type: "SAVE_WORD";
   word: string;
@@ -79,6 +105,8 @@ type StopSpeakingMessage = { type: "STOP_SPEAKING" };
 
 type AppMessage =
   | TranslateMessage
+  | AiTranslateMessage
+  | AiTranslateSentenceMessage
   | SaveMessage
   | ReviewResultMessage
   | GetDeviceIdMessage
@@ -104,12 +132,43 @@ type AppMessage =
   | StopSpeakingMessage
 ;
 
+// Upper bounds for page-controlled text forwarded to the paid translation API.
+const MAX_TRANSLATE_WORD = 300;
+const MAX_TRANSLATE_SENTENCE = 400;
+const MAX_TRANSLATE_TITLE = 200;
+
+// Keys OpenAI has rejected this worker lifetime. Deliberately in memory only:
+// it clears when the worker restarts, so pasting a corrected key starts working
+// again without any explicit reset.
+const rejectedKeys = new Set<string>();
+const isKeyKnownBad = (key: string) => rejectedKeys.has(key);
+const markKeyBad = (key: string) => rejectedKeys.add(key);
+
+function safeHostname(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
 function isValidMessage(msg: unknown): msg is AppMessage {
   if (!msg || typeof msg !== "object" || !("type" in msg)) return false;
   const m = msg as Record<string, unknown>;
   switch (m.type) {
     case "TRANSLATE_WORD":
       return typeof m.word === "string";
+    case "AI_TRANSLATE_SENTENCE":
+      return typeof m.sentence === "string"
+        && (m.pageTitle === undefined || typeof m.pageTitle === "string")
+        && (m.url === undefined || typeof m.url === "string");
+    case "AI_TRANSLATE":
+      // The optional fields are sliced without further checks in the handler,
+      // and an unhandled throw there leaves the message port unanswered.
+      return typeof m.word === "string"
+        && (m.sentence === undefined || typeof m.sentence === "string")
+        && (m.pageTitle === undefined || typeof m.pageTitle === "string")
+        && (m.url === undefined || typeof m.url === "string");
     case "SAVE_WORD":
       return typeof m.word === "string" && typeof m.translation === "string";
     case "REVIEW_RESULT":
@@ -375,7 +434,10 @@ export default defineBackground(() => {
   chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (!tab?.id || !info.selectionText) return;
     const text = info.selectionText.trim();
-    if (!text || text.length < 2 || text.length > 40) return;
+    if (!text || text.length > 40) return;
+    // English-only: don't act on Russian, CJK, Greek, Arabic, etc. Phrases stay
+    // allowed — the selection popup accepts them, so the menu must too.
+    if (classifySelection(text) === "reject") return;
 
     try {
       if (info.menuItemId === "vocabify-translate") {
@@ -464,7 +526,15 @@ export default defineBackground(() => {
       return false;
     }
 
-    handleMessage(message, convex, updateBadge).then(sendResponse);
+    // Without the catch, a throw anywhere in handleMessage leaves the port open
+    // and the caller's sendMessage promise never settles — the popup spins
+    // forever instead of showing an error.
+    handleMessage(message, convex, updateBadge)
+      .then(sendResponse)
+      .catch((e) => {
+        console.error("[Vocabify] message handler failed:", e);
+        sendResponse({ success: false, error: "Internal error" });
+      });
     return true; // keep channel open for async response
   });
 });
@@ -513,6 +583,147 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
         return { success: true, translation };
       } catch (e) {
         return { success: false, error: String(e) };
+      }
+    }
+
+    // Whole-sentence translation. Same key, cache, clamps and fallback as the
+    // word path — the only differences are the schema and the extras it returns.
+    case "AI_TRANSLATE_SENTENCE": {
+      const sentence = message.sentence.slice(0, MAX_TRANSLATE_SENTENCE).trim();
+      const pageTitle = (message.pageTitle ?? "").slice(0, MAX_TRANSLATE_TITLE);
+      const url = message.url ?? "";
+
+      if (!sentence) return { success: false, error: "Empty sentence" };
+
+      const sync = await chrome.storage.sync.get([
+        "targetLang",
+        "userLevel",
+        "enableSmartTranslation",
+      ]) as Record<string, unknown>;
+      const targetLang = (sync.targetLang as string) || "ru";
+      const userLevel = (sync.userLevel as string) || "B1";
+      const aiEnabled = sync.enableSmartTranslation !== false;
+
+      const local = await chrome.storage.local.get("openaiApiKey") as { openaiApiKey?: string };
+      const apiKey = local.openaiApiKey?.trim();
+
+      let aiError: string | null = null;
+
+      if (apiKey && isKeyKnownBad(apiKey)) {
+        aiError = "auth";
+      } else if (aiEnabled && apiKey) {
+        const cacheKey = sentenceCacheKey(sentence, targetLang, userLevel);
+        const cached = await getCachedTranslation<AiSentenceTranslation>(cacheKey, sentence);
+        if (cached) {
+          return { success: true, source: "ai", result: cached, cached: true };
+        }
+
+        try {
+          const result = await translateSentenceWithOpenAI({
+            apiKey,
+            sentence,
+            pageTitle,
+            domain: safeHostname(url),
+            targetLang,
+            userLevel,
+          });
+
+          if (!result.isEnglish) {
+            return { success: false, error: "Not English", notEnglish: true };
+          }
+
+          await setCachedTranslation(cacheKey, result, sentence);
+          return { success: true, source: "ai", result, cached: false };
+        } catch (e) {
+          aiError = e instanceof OpenAiTranslateError ? e.kind : "network";
+          if (aiError === "auth") markKeyBad(apiKey);
+          console.warn(`[Vocabify] AI sentence translation failed (${aiError}), using fallback`);
+        }
+      }
+
+      try {
+        const translation = await translateWord(sentence, targetLang);
+        return { success: true, source: "basic", translation, aiError };
+      } catch (e) {
+        return { success: false, error: String(e), aiError };
+      }
+    }
+
+    // Context-aware lookup. Runs here rather than in the content script because
+    // MV3 content scripts cannot make cross-origin requests.
+    case "AI_TRANSLATE": {
+      // Clamp before anything else. All three fields are page-controlled, and
+      // pageTitle in particular is whatever <title> the site chose — an
+      // oversized one would be billed to the user's OpenAI account on every
+      // lookup and would blow out the cache key.
+      const word = message.word.slice(0, MAX_TRANSLATE_WORD);
+      const sentence = (message.sentence ?? "").slice(0, MAX_TRANSLATE_SENTENCE);
+      const pageTitle = (message.pageTitle ?? "").slice(0, MAX_TRANSLATE_TITLE);
+      const url = message.url ?? "";
+
+      if (!word.trim()) return { success: false, error: "Empty word" };
+
+      const sync = await chrome.storage.sync.get([
+        "targetLang",
+        "userLevel",
+        "enableSmartTranslation",
+      ]) as Record<string, unknown>;
+      const targetLang = (sync.targetLang as string) || "ru";
+      const userLevel = (sync.userLevel as string) || "B1";
+      const aiEnabled = sync.enableSmartTranslation !== false;
+
+      const local = await chrome.storage.local.get("openaiApiKey") as { openaiApiKey?: string };
+      const apiKey = local.openaiApiKey?.trim();
+
+      let aiError: string | null = null;
+
+      // A key OpenAI already rejected will be rejected again. Retrying it on
+      // every lookup adds the full request timeout in front of the free
+      // fallback, so each word takes tens of seconds instead of one.
+      if (apiKey && isKeyKnownBad(apiKey)) {
+        aiError = "auth";
+      } else if (aiEnabled && apiKey) {
+        const cacheKey = translationCacheKey(word, sentence, targetLang, userLevel);
+        const cached = await getCachedTranslation(cacheKey, sentence);
+        if (cached) {
+          logEvent(convex, deviceId, "word_lookup", word);
+          return { success: true, source: "ai", result: cached, cached: true };
+        }
+
+        try {
+          const result = await translateWithOpenAI({
+            apiKey,
+            word,
+            sentence,
+            pageTitle,
+            domain: safeHostname(url),
+            targetLang,
+            userLevel,
+          });
+          // The script check catches non-Latin text for free; this catches the
+          // Latin-script case it cannot (French, Spanish, invented words). Do
+          // not cache a verdict about text we are not going to translate.
+          if (!result.isEnglish) {
+            return { success: false, error: "Not English", notEnglish: true };
+          }
+
+          await setCachedTranslation(cacheKey, result, sentence);
+          logEvent(convex, deviceId, "word_lookup", word);
+          return { success: true, source: "ai", result, cached: false };
+        } catch (e) {
+          // Fall through to the free chain — a broken key must not break lookups.
+          aiError = e instanceof OpenAiTranslateError ? e.kind : "network";
+          if (aiError === "auth") markKeyBad(apiKey);
+          console.warn(`[Vocabify] AI translation failed (${aiError}), using fallback`);
+        }
+      }
+
+      try {
+        const translation = await translateWord(word, targetLang);
+        logEvent(convex, deviceId, "word_lookup", word);
+        return { success: true, source: "basic", translation, aiError };
+      } catch (e) {
+        return { success: false, error: String(e), aiError };
       }
     }
 
