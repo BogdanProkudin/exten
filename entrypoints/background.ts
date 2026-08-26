@@ -48,6 +48,8 @@ type AiTranslateSentenceMessage = {
   sentence: string;
   pageTitle?: string;
   url?: string;
+  /** False asks for the free chain only, so nothing is billed. Default true. */
+  useAi?: boolean;
 };
 type AiTranslateMessage = {
   type: "AI_TRANSLATE";
@@ -161,7 +163,8 @@ function isValidMessage(msg: unknown): msg is AppMessage {
     case "AI_TRANSLATE_SENTENCE":
       return typeof m.sentence === "string"
         && (m.pageTitle === undefined || typeof m.pageTitle === "string")
-        && (m.url === undefined || typeof m.url === "string");
+        && (m.url === undefined || typeof m.url === "string")
+        && (m.useAi === undefined || typeof m.useAi === "boolean");
     case "AI_TRANSLATE":
       // The optional fields are sliced without further checks in the handler,
       // and an unhandled throw there leaves the message port unanswered.
@@ -609,7 +612,13 @@ async function handleMessage(message: AppMessage, convex: ConvexHttpClient, upda
 
       let aiError: string | null = null;
 
-      if (apiKey && isKeyKnownBad(apiKey)) {
+      // The caller can opt out per request: long paragraphs open on the free
+      // chain so nothing is spent until the reader asks for AI.
+      const wantsAi = message.useAi !== false;
+
+      if (!wantsAi) {
+        aiError = null;
+      } else if (apiKey && isKeyKnownBad(apiKey)) {
         aiError = "auth";
       } else if (aiEnabled && apiKey) {
         const cacheKey = sentenceCacheKey(sentence, targetLang, userLevel);

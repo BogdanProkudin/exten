@@ -38,3 +38,17 @@ export function decideSelectionPopup(
 
   return { action: "show", kind, text };
 }
+
+/**
+ * Length past which a sentence opens with the free translation instead of AI.
+ *
+ * AI is worth an automatic call on a short sentence: it is a fraction of a cent
+ * and arrives quickly. On a long paragraph it is slower and the reader often
+ * only wants the gist, so the free chain answers immediately and the popup
+ * offers AI as a button.
+ */
+export const AUTO_AI_MAX_CHARS = 150;
+
+export function shouldAutoUseAi(sentence: string): boolean {
+  return sentence.replace(/\s+/g, " ").trim().length <= AUTO_AI_MAX_CHARS;
+}

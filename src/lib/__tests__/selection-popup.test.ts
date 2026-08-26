@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decideSelectionPopup } from '../selection-popup';
+import { decideSelectionPopup, shouldAutoUseAi } from '../selection-popup';
 
 // Regression: selecting a word opened the popup, then extending the selection to
 // the whole sentence did nothing — the word popup stayed and kept showing the
@@ -65,5 +65,39 @@ describe('decideSelectionPopup', () => {
 
   it('normalizes the text it reports so the caller stores one canonical form', () => {
     expect(decideSelectionPopup('  the  bank   raised  ', null).text).toBe('the bank raised');
+  });
+});
+
+describe('shouldAutoUseAi', () => {
+  // Long selections open with the free translation so nothing is spent unless
+  // the reader asks for it. Short ones are cheap and quick, so they still go
+  // straight to AI.
+  it('sends a short sentence to AI automatically', () => {
+    expect(shouldAutoUseAi('The bank raised interest rates again.')).toBe(true);
+  });
+
+  it('leaves a long paragraph on the free translator', () => {
+    const paragraph =
+      'Get more when you sign up! Create a free LearnEnglish account to receive ' +
+      'our monthly newsletter, take a free English level test and access various ' +
+      'learning resources. As a member, connect with learners worldwide.';
+    expect(paragraph.length).toBeGreaterThan(150);
+    expect(shouldAutoUseAi(paragraph)).toBe(false);
+  });
+
+  it('switches over at 150 characters', () => {
+    expect(shouldAutoUseAi('a'.repeat(150))).toBe(true);
+    expect(shouldAutoUseAi('a'.repeat(151))).toBe(false);
+  });
+
+  it('measures the collapsed text, not the raw selection', () => {
+    // 140 characters of content padded with whitespace to over 150 raw.
+    const padded = '   ' + 'a'.repeat(140) + '          ';
+    expect(padded.length).toBeGreaterThan(150);
+    expect(shouldAutoUseAi(padded)).toBe(true);
+  });
+
+  it('treats an empty selection as cheap', () => {
+    expect(shouldAutoUseAi('')).toBe(true);
   });
 });

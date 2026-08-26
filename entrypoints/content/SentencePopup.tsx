@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import type { AiSentenceTranslation } from "../../src/lib/openai-translate";
+import { shouldAutoUseAi } from "../../src/lib/selection-popup";
 
 interface SentencePopupProps {
   sentence: string;
@@ -22,6 +23,9 @@ export function SentencePopup({
   const [translating, setTranslating] = useState(true);
   const [ai, setAi] = useState<AiSentenceTranslation | null>(null);
   const [notEnglish, setNotEnglish] = useState(false);
+  // Long paragraphs open on the free translator. AI stays one click away so a
+  // long selection never spends without being asked for.
+  const [useAi, setUseAi] = useState(() => shouldAutoUseAi(sentence));
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -64,6 +68,7 @@ export function SentencePopup({
         sentence,
         pageTitle: document.title,
         url: window.location.href,
+        useAi,
       })
       .then((res) => {
         if (cancelled) return;
@@ -89,7 +94,7 @@ export function SentencePopup({
       .finally(() => { if (!cancelled) setTranslating(false); });
 
     return () => { cancelled = true; };
-  }, [sentence, translationKey]);
+  }, [sentence, translationKey, useAi]);
 
   function retryTranslation() {
     setTranslationKey((k) => k + 1);
@@ -407,6 +412,33 @@ export function SentencePopup({
               </div>
             )}
           </div>
+
+          {/* Long selections open on the free translator. Offer AI rather than
+              spending on it automatically. */}
+          {!useAi && !translating && translation && (
+            <button
+              onClick={() => setUseAi(true)}
+              style={{
+                display: "flex", alignItems: "center", gap: "6px",
+                margin: "0 0 12px", padding: "7px 12px",
+                fontSize: "12px", fontWeight: 500, fontFamily: FONT,
+                borderRadius: "9px",
+                border: "1px solid rgba(99,102,241,0.25)",
+                background: "#fff",
+                color: "#4338ca",
+                cursor: "pointer",
+                transition: "all 150ms ease",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#eef2ff"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v2m0 14v2M5.6 5.6l1.4 1.4m10 10l1.4 1.4M3 12h2m14 0h2M5.6 18.4L7 17m10-10l1.4-1.4" />
+                <circle cx="12" cy="12" r="3.5" />
+              </svg>
+              Better translation with AI
+            </button>
+          )}
 
           {/* Learning extras — arrive with the translation, no extra call */}
           {ai && (ai.grammarNote || ai.simplified || ai.keyWords.length > 0) && (
