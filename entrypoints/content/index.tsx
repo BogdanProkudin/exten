@@ -198,7 +198,8 @@ export default defineContentScript({
     let openPopupText: string | null = null;
 
     function closeSelectionPopups() {
-      closeSelectionPopups();
+      if (popupUi) { popupUi.remove(); popupUi = null; }
+      if (sentenceUi) { sentenceUi.remove(); sentenceUi = null; }
       openPopupText = null;
     }
     let toastUi: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
@@ -303,9 +304,10 @@ export default defineContentScript({
       const newHref = window.location.href;
       if (newHref === lastHref) return;
       lastHref = newHref;
-      // Close open popups on navigation
-      if (popupUi) { popupUi.remove(); popupUi = null; }
-      if (sentenceUi) { sentenceUi.remove(); sentenceUi = null; }
+      // Close open popups on navigation. Uses the helper so openPopupText is
+      // cleared too — otherwise the same word could not be reselected after an
+      // in-page navigation.
+      closeSelectionPopups();
       // Re-run page analysis for new content
       currentAnalysis = null;
       setTimeout(() => scheduleAnalysis(), 500);
