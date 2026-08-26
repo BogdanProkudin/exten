@@ -90,12 +90,25 @@ describe('classifySelection', () => {
     expect(classifySelection('   \n  ')).toBe('reject');
   });
 
-  it('rejects a selection longer than 300 characters', () => {
-    expect(classifySelection('word '.repeat(100))).toBe('reject');
+  it('rejects a selection longer than 1000 characters', () => {
+    expect(classifySelection('word '.repeat(300))).toBe('reject');
   });
 
-  it('rejects a selection with more than 40 words', () => {
-    expect(classifySelection('go '.repeat(45).trim())).toBe('reject');
+  it('rejects a selection with more than 150 words', () => {
+    expect(classifySelection('go '.repeat(160).trim())).toBe('reject');
+  });
+
+  // The paragraph a user actually selected on learnenglish.britishcouncil.org,
+  // which the old 300-char / 40-word limits silently dropped.
+  it('accepts an ordinary selected paragraph', () => {
+    const paragraph =
+      'Get more when you sign up! Create a free LearnEnglish account to receive ' +
+      'our monthly newsletter, take a free English level test and access various ' +
+      'learning resources. As a member, connect with learners worldwide and ' +
+      'practise your English through comments, speech recordings and community events.';
+    expect(paragraph.length).toBeGreaterThan(290);
+    expect(paragraph.split(' ').length).toBeGreaterThan(40);
+    expect(classifySelection(paragraph)).toBe('phrase');
   });
 
   it('rejects numbers and punctuation', () => {
@@ -118,24 +131,21 @@ describe('classifySelection — boundaries', () => {
     expect(classifySelection('an')).toBe('word');
   });
 
-  it('accepts exactly 300 characters and rejects 301', () => {
-    // 299 letters + 1 = 300 total, kept as one token so it stays a "word".
-    const at300 = 'a'.repeat(300);
-    const at301 = 'a'.repeat(301);
-    expect(classifySelection(at300)).toBe('word');
-    expect(classifySelection(at301)).toBe('reject');
+  it('accepts exactly 1000 characters and rejects 1001', () => {
+    expect(classifySelection('a'.repeat(1000))).toBe('word');
+    expect(classifySelection('a'.repeat(1001))).toBe('reject');
   });
 
-  it('accepts exactly 40 words and rejects 41', () => {
-    const words40 = Array(40).fill('go').join(' '); // 119 chars, under the length cap
-    const words41 = Array(41).fill('go').join(' ');
-    expect(classifySelection(words40)).toBe('phrase');
-    expect(classifySelection(words41)).toBe('reject');
+  it('accepts exactly 150 words and rejects 151', () => {
+    const words150 = Array(150).fill('go').join(' '); // 449 chars, under the length cap
+    const words151 = Array(151).fill('go').join(' ');
+    expect(classifySelection(words150)).toBe('phrase');
+    expect(classifySelection(words151)).toBe('reject');
   });
 
   it('measures length after whitespace collapsing, not before', () => {
-    // 35 six-letter words: 244 chars once collapsed (under the 300 cap) and
-    // 35 words (under the 40 cap), but 346 chars raw.
+    // 35 six-letter words: 244 chars once collapsed, well under both caps,
+    // but 346 chars raw.
     const padded = Array(35).fill('sixchr').join('    ');
     expect(padded.length).toBeGreaterThan(300);
     expect(classifySelection(padded)).toBe('phrase');

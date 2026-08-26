@@ -134,7 +134,7 @@ type AppMessage =
 
 // Upper bounds for page-controlled text forwarded to the paid translation API.
 const MAX_TRANSLATE_WORD = 300;
-const MAX_TRANSLATE_SENTENCE = 400;
+const MAX_TRANSLATE_SENTENCE = 1200;
 const MAX_TRANSLATE_TITLE = 200;
 
 // Keys OpenAI has rejected this worker lifetime. Deliberately in memory only:

@@ -464,7 +464,20 @@ export default defineContentScript({
     }
 
     // --- Word Selection Popup ---
-    document.addEventListener("mouseup", async (e) => {
+    //
+    // A double click fires two mouseups and a triple click fires three, each
+    // with a wider selection than the last. Acting on every one of them mounts
+    // and animates a popup per click, which is the flicker you see when
+    // widening a selection. Wait for the click sequence to settle and act only
+    // on the final selection.
+    const SETTLE_SINGLE_MS = 60;   // a plain drag-select: stay snappy
+    const SETTLE_MULTI_MS = 260;   // mid double/triple click: another may follow
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    document.addEventListener("mouseup", (e) => {
+      // Everything reading the event must run now, synchronously:
+      // composedPath() is empty once dispatch finishes.
+
       // Only act on a real user gesture. A page can build a Selection and
       // dispatch a synthetic mouseup itself, and every popup that opens fires a
       // paid AI_TRANSLATE against the user's own OpenAI key — so without this
@@ -480,9 +493,18 @@ export default defineContentScript({
       // Check site exclusion
       if (isSiteExcluded()) return;
 
-      // Small delay to let selection finalize
-      await new Promise((r) => setTimeout(r, 10));
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(
+        () => { settleTimer = null; void openPopupForSelection(); },
+        e.detail >= 2 ? SETTLE_MULTI_MS : SETTLE_SINGLE_MS,
+      );
+    });
 
+    ctx.onInvalidated(() => {
+      if (settleTimer) clearTimeout(settleTimer);
+    });
+
+    async function openPopupForSelection() {
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) return;
 
@@ -611,7 +633,7 @@ export default defineContentScript({
 
       popupUi.mount();
       popupCreatedAt = Date.now();
-    });
+    }
 
     // Close popup on click outside (but not when clicking inside the popup itself)
     document.addEventListener("mousedown", (e) => {

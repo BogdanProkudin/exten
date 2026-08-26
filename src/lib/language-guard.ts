@@ -12,8 +12,12 @@ export type SelectionKind = "word" | "phrase" | "reject";
 const NON_LATIN_TOLERANCE = 0.15;
 
 const MIN_LENGTH = 2;
-const MAX_LENGTH = 300;
-const MAX_WORDS = 40;
+// Sized for a real paragraph. The previous 300 chars / 40 words rejected an
+// ordinary selected paragraph (a 295-character, 45-word one was silently
+// dropped), which looked like the extension was broken. At gpt-4.1-nano prices a
+// 1000-character paragraph costs about $0.0002 to translate.
+const MAX_LENGTH = 1000;
+const MAX_WORDS = 150;
 
 // A single word: starts with a Latin letter, then Latin letters, apostrophes or
 // hyphens. Digits are excluded on purpose — "covid19" and "h1b" are not
